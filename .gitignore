@@ -1,0 +1,15 @@
+# dependencies
+node_modules/
+
+# build output (rebuilt by CI for GitHub Pages)
+dist/
+dist-*/
+
+# local env / secrets
+.env
+.env.*
+
+# tooling
+.vite/
+*.log
+.DS_Store

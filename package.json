@@ -1,0 +1,29 @@
+{
+  "name": "zombie-sprint",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Zombie Sprint — a cartoon zombie championship built with Three.js. Fully procedural: no external assets.",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "build:targets": "node tools/build-targets.mjs",
+    "promo": "node tools/store-materials.mjs",
+    "preview": "vite preview --host",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vkontakte/vk-bridge": "^3.0.2",
+    "game-kit": "file:../game-kit",
+    "three": "^0.185.1"
+  },
+  "targets": ["yandex", "vkok", "crazy", "gamedist"],
+  "cloudKeys": [],
+  "localKeys": ["zs_audio_muted"],
+  "gdGameId": "331e7fa3e07a4154bc9062922bef2f50",
+  "devDependencies": {
+    "@types/three": "^0.185.4",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2"
+  }
+}

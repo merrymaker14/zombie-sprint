@@ -1,0 +1,19 @@
+declare module 'game-kit/platform' {
+  export function offPlatform(): boolean;
+}
+
+declare module 'game-kit/platform/ads.js' {
+  export function adPlatform(): string;
+  export function adReady(): boolean;
+  export function adsGameReady(): void;
+  export function banner(show: boolean): void;
+  export function bindPlaying(fn: () => boolean): void;
+  export function gameplay(on: boolean): void;
+  export function initAds(): void;
+  export function interstitial(): Promise<boolean>;
+  export function onAdBusy(fn: (busy: boolean) => void): () => void;
+  export function onAppFocus(fn: (focused: boolean) => void): () => void;
+  export function onPlatformMute(fn: (muted: boolean) => void): () => void;
+  export function rewardWarm(): boolean;
+  export function rewarded(): Promise<boolean>;
+}
