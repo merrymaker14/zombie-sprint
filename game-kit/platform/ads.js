@@ -162,6 +162,13 @@ export function initAds() {
   try {
     drv.init((cap) => {
       ok = true; bannerCap = !!cap;
+      /* The game can reach its first playable state before a platform SDK
+         finishes initializing. Replay the latest state now that the driver
+         has a live SDK instance; otherwise the first gameplayStart() is lost
+         and CrazyGames keeps First gameplay start at No. */
+      if (playing !== null) {
+        try { drv.gameplay(playing); } catch (e) {}
+      }
       if (wantReady) adsGameReady();
     });
   } catch (e) { /* вне площадки — молча, игра работает без рекламы */ }

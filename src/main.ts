@@ -63,6 +63,12 @@ function boot(): void {
   try {
     const game = new Game(app);
     ads.setup(() => game.currentState === 'racing' || game.currentState === 'countdown');
+    // CrazyGames measures the first playable moment through gameplayStart().
+    // State changes are the source of truth; listening only to ad-busy changes
+    // left the first race unreported when no ad had run yet.
+    events.on('game:stateChange', ({ to }) => {
+      ads.setGameplay(to === 'racing' || to === 'countdown');
+    });
     ads.onAdBusy((busy: boolean) => {
       document.body.classList.toggle('ad-busy', busy);
       ads.setGameplay(!busy && (game.currentState === 'racing' || game.currentState === 'countdown'));
