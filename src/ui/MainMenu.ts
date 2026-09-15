@@ -91,7 +91,6 @@ export class MainMenu {
       line.textContent = w;
     });
     this.i18nText('div', 'logo-sub', 'brand.subtitle', title);
-    this.i18nText('div', 'zombie-badge', 'brand.badge', title);
     this.jokeLine = new TextField(el('div', 'zombie-joke', zombieJoke(), title));
     const languagePicker = el('div', 'language-picker glass', undefined, title);
     this.i18nText('span', 'language-label', 'language.label', languagePicker);
@@ -103,7 +102,6 @@ export class MainMenu {
     }
     const prompt = el('div', 'press-start', undefined, title);
     this.i18nText('span', 'press-start-text', 'menu.pressStart', prompt);
-    this.i18nText('div', 'zombie-friendly-note', 'brand.note', title);
     const legend = el('div', 'controls-legend glass', undefined, title);
     const keys: [string, string][] = [
       ['W / ↑', 'controls.sprint'],

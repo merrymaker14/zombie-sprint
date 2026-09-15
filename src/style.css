@@ -446,33 +446,6 @@ kbd {
   animation: fade-up 0.8s 0.25s var(--ease-out) both;
 }
 
-.zombie-badge,
-.zombie-friendly-note {
-  font-family: var(--display);
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  text-align: center;
-}
-
-.zombie-badge {
-  margin-top: 10px;
-  padding: 7px 14px;
-  border-radius: 999px;
-  color: #17231b;
-  background: linear-gradient(100deg, #a8d875, #d8f28c 48%, #7cffb2);
-  box-shadow: 0 0 24px rgba(124, 255, 178, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.55);
-  font-size: clamp(10px, 1vw, 13px);
-  animation: fade-up 0.8s 0.32s var(--ease-out) both;
-}
-
-.zombie-friendly-note {
-  margin-top: 8px;
-  color: rgba(216, 242, 140, 0.78);
-  font-size: clamp(9px, 0.85vw, 12px);
-  letter-spacing: 0.2em;
-  animation: fade-up 0.8s 0.38s var(--ease-out) both;
-}
-
 .zombie-joke {
   max-width: min(620px, 82vw);
   margin-top: 10px;
@@ -639,7 +612,7 @@ kbd {
 }
 
 .panel-chars .select-header::after {
-  content: '🧟 8 FRIENDLY RACERS · NO BLOOD';
+  content: '🧟 8 FRIENDLY RACERS · CARTOON DASH';
 }
 
 .panel-tracks .select-header::after {
@@ -647,7 +620,7 @@ kbd {
 }
 
 html[lang='ru'] .panel-chars .select-header::after {
-  content: '🧟 8 ДРУЖЕЛЮБНЫХ ГОНЩИКОВ · БЕЗ КРОВИ';
+  content: '🧟 8 ДРУЖЕЛЮБНЫХ ГОНЩИКОВ · МУЛЬТЯШНЫЙ ЗАЕЗД';
 }
 
 html[lang='ru'] .panel-tracks .select-header::after {

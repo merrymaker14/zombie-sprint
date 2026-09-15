@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./build": "./build/index.mjs",
     "./platform": "./platform/index.js",
     "./platform/ads.js": "./platform/ads.js"
   }
