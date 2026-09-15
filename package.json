@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@vkontakte/vk-bridge": "^3.0.2",
-    "game-kit": "file:../game-kit",
+    "game-kit": "file:./game-kit",
     "three": "^0.185.1"
   },
   "targets": ["yandex", "vkok", "crazy", "gamedist"],

@@ -1,0 +1,10 @@
+{
+  "name": "game-kit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./platform": "./platform/index.js",
+    "./platform/ads.js": "./platform/ads.js"
+  }
+}
