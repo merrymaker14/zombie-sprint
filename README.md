@@ -13,7 +13,7 @@ decoration are generated in code. There are no external game assets to host.
 - 4 routes: Graveyard Loop, Doomsday Highway, Frozen Outbreak and Neon Quarantine.
 - 3-lap runs against 7 AI rivals.
 - Drift mini-boosts, speed pads, powers, collisions and catch-up balancing.
-- Keyboard and gamepad controls.
+- Keyboard, gamepad and touch controls (phones and tablets in landscape).
 - Interstitial ads after completed runs and display banners on non-racing screens.
 - Platform pause, mute and gameplay signals wired through `game-kit`.
 
@@ -55,16 +55,16 @@ platform mute and gameplay start/stop signals.
 
 ## Controls
 
-| Action | Keyboard | Gamepad |
-| --- | --- | --- |
-| Sprint | W / Up | Right trigger |
-| Brake / reverse | S / Down | Left trigger |
-| Steer | A / D or Left / Right | Left stick |
-| Hop / drift | Space / Shift | A / RB |
-| Use power | E / Ctrl / Enter | X / LB |
-| Look back | Q | |
-| Pause | Esc / P | Start |
-| Menu confirm / back | Enter / Space / Esc | A / B |
+| Action | Keyboard | Gamepad | Touch |
+| --- | --- | --- | --- |
+| Sprint | W / Up | Right trigger | Automatic once the race starts |
+| Brake / reverse | S / Down | Left trigger | BRAKE |
+| Steer | A / D or Left / Right | Left stick | Left pad, slide between sides |
+| Hop / drift | Space / Shift | A / RB | DRIFT |
+| Use power | E / Enter | X / LB | POWER |
+| Look back | Q | | |
+| Pause | Esc / P | Start | Pause button at the top |
+| Menu confirm / back | Enter / Space / Esc | A / B | Tap |
 
 ## Project layout
 

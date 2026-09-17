@@ -2272,3 +2272,220 @@ body.has-banner #ui .screen {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ------------------------------------------------------------------ touch controls */
+.touch-controls,
+.rotate-device {
+  display: none;
+}
+
+html.touch-mode #ui[data-state='countdown'] .touch-controls,
+html.touch-mode #ui[data-state='racing'] .touch-controls {
+  display: block;
+}
+
+html.touch-mode,
+html.touch-mode body {
+  touch-action: manipulation;
+}
+
+.touch-controls {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  --tc-side: max(12px, env(safe-area-inset-left), env(safe-area-inset-right));
+  --tc-bottom: max(12px, env(safe-area-inset-bottom));
+  --tc-drift: min(28vmin, 150px);
+  --tc-item: min(21vmin, 112px);
+  --tc-brake: min(13vmin, 70px);
+}
+
+.tc-steer,
+.tc-btn {
+  position: absolute;
+  pointer-events: auto;
+  touch-action: none;
+  box-sizing: border-box;
+  background: rgba(8, 10, 26, 0.36);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  backdrop-filter: blur(2px);
+}
+
+.tc-steer {
+  left: var(--tc-side);
+  bottom: var(--tc-bottom);
+  width: min(44vmin, 260px);
+  height: min(26vmin, 150px);
+  border-radius: 999px;
+}
+
+.tc-steer-arrow {
+  position: absolute;
+  top: 50%;
+  font-size: min(10vmin, 56px);
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.75);
+  transform: translateY(-50%);
+  transition: transform 80ms ease-out, color 80ms ease-out;
+}
+
+.tc-steer-left {
+  left: 16%;
+}
+
+.tc-steer-right {
+  right: 16%;
+}
+
+.tc-steer[data-steer='left'] .tc-steer-left,
+.tc-steer[data-steer='right'] .tc-steer-right {
+  color: #b8ff7a;
+  transform: translateY(-50%) scale(1.2);
+}
+
+.tc-btn {
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  transition: transform 60ms ease-out, background-color 60ms ease-out;
+}
+
+.tc-btn.down {
+  background: rgba(184, 255, 122, 0.36);
+  border-color: #b8ff7a;
+  transform: scale(0.93);
+}
+
+.tc-label {
+  font-size: min(3.2vmin, 16px);
+  text-transform: uppercase;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+
+.tc-drift {
+  right: var(--tc-side);
+  bottom: var(--tc-bottom);
+  width: var(--tc-drift);
+  height: var(--tc-drift);
+}
+
+.tc-item,
+.tc-brake {
+  right: calc(var(--tc-side) + var(--tc-drift) + min(2vmin, 12px));
+}
+
+.tc-item {
+  bottom: calc(var(--tc-bottom) + var(--tc-brake) + min(2vmin, 10px));
+  width: var(--tc-item);
+  height: var(--tc-item);
+}
+
+.tc-brake {
+  bottom: var(--tc-bottom);
+  width: var(--tc-brake);
+  height: var(--tc-brake);
+}
+
+.tc-brake .tc-label {
+  font-size: min(2.4vmin, 12px);
+}
+
+.tc-pause {
+  top: max(10px, env(safe-area-inset-top));
+  left: 50%;
+  width: min(11vmin, 56px);
+  height: min(11vmin, 56px);
+  transform: translateX(-50%);
+}
+
+.tc-pause.down {
+  transform: translateX(-50%) scale(0.93);
+}
+
+.tc-glyph {
+  font-size: min(4vmin, 20px);
+  line-height: 1;
+}
+
+/* Race HUD moves away from the thumbs while touch controls are shown. */
+html.touch-mode .hud-place {
+  top: var(--hud-pad);
+  bottom: auto;
+  left: calc(var(--hud-pad) + clamp(84px, 8.5vw, 118px) + 12px);
+  transform: scale(0.72);
+  transform-origin: left top;
+}
+
+html.touch-mode .hud-minimap {
+  top: calc(var(--hud-pad) + 96px);
+  bottom: auto;
+  transform: scale(0.55);
+  transform-origin: right top;
+}
+
+html.touch-mode .hud-speed {
+  transform: translateX(-50%) scale(0.8);
+  transform-origin: center bottom;
+}
+
+/* Portrait phones: the race needs landscape. */
+.rotate-device {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: radial-gradient(circle at 50% 35%, #1b2a3a 0%, #07091a 70%);
+  color: #fff;
+  text-align: center;
+}
+
+@media (orientation: portrait) {
+  html.touch-mode .rotate-device {
+    display: flex;
+  }
+}
+
+.rotate-card {
+  max-width: 320px;
+}
+
+.rotate-icon {
+  font-size: 64px;
+  display: inline-block;
+  animation: rotate-hint 1.8s ease-in-out infinite;
+}
+
+.rotate-title {
+  margin: 18px 0 8px;
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  color: #b8ff7a;
+}
+
+.rotate-body {
+  font-size: 15px;
+  line-height: 1.4;
+  opacity: 0.85;
+}
+
+@keyframes rotate-hint {
+  0%, 25% { transform: rotate(0deg); }
+  60%, 100% { transform: rotate(-90deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rotate-icon { animation: none; }
+}

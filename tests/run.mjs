@@ -44,6 +44,7 @@ const steps = [
   ['типы', ['node_modules/typescript/bin/tsc', '--noEmit']],
   ['жизненный цикл', ['tests/lifecycle.mjs', '--url=' + URL]],
   ['обязательства перед площадками', ['tests/platform.mjs', '--url=' + URL]],
+  ['игра на телефоне', ['tests/touch.mjs', '--url=' + URL]],
 ];
 const distSteps = [
   ['пересборка всех целей', ['tools/build-targets.mjs']],

@@ -50,6 +50,7 @@ import { PauseMenu } from '../ui/PauseMenu';
 import { LoadingScreen } from '../ui/LoadingScreen';
 import { el } from '../ui/dom';
 import { showToast } from '../ui/toast';
+import { TouchControls } from '../ui/TouchControls';
 import { onLanguageChange, t } from '../core/i18n';
 
 const MIN_LOADING_SECONDS = 0.8;
@@ -130,6 +131,7 @@ export class Game {
   private readonly uiRoot: HTMLElement;
 
   private readonly input: InputManager;
+  private readonly touch: TouchControls;
   private readonly audio: IAudioEngine;
   private readonly particles: IParticleSystem;
   private readonly postfx: IPostFX;
@@ -206,6 +208,8 @@ export class Game {
 
     // ---------------------------------------------------------- systems
     this.input = new InputManager();
+    this.touch = new TouchControls(this.uiRoot);
+    this.input.setTouchSource(this.touch);
     this.audio = new AudioEngine();
     const particles = new ParticleSystem();
     if (this.lowQuality) particles.setDetail(SOFTWARE_PARTICLE_DETAIL);
@@ -357,6 +361,7 @@ export class Game {
     this.languageUnsub();
     this.muteIndicator.remove();
     this.input.dispose();
+    this.touch.dispose();
     this.safe(() => this.audio.dispose());
     this.safe(() => this.particles.dispose());
     this.safe(() => this.postfx.dispose());

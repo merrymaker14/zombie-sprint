@@ -5,6 +5,12 @@
  */
 import { createEmptyInput, type InputState } from '../core/types';
 import { clamp } from '../core/math';
+import type { TouchFrame } from '../ui/TouchControls';
+
+/** On-screen controls; read once per update. */
+export interface TouchSource {
+  read(): TouchFrame;
+}
 
 const KEY_THROTTLE = ['KeyW', 'ArrowUp'];
 const KEY_BRAKE = ['KeyS', 'ArrowDown'];
@@ -60,6 +66,8 @@ export class InputManager {
   /** Codes pressed since the previous update (consumed for edges). */
   private readonly pressed = new Set<string>();
   private keyboardSteer = 0;
+  private touch: TouchSource | null = null;
+  private touchSteer = 0;
   private lastTime = 0;
 
   private padButtons: boolean[] = new Array<boolean>(PAD_BUTTON_COUNT).fill(false);
@@ -76,6 +84,10 @@ export class InputManager {
     window.addEventListener('blur', this.onBlur);
     document.addEventListener('visibilitychange', this.onVisibility);
     this.lastTime = performance.now();
+  }
+
+  setTouchSource(source: TouchSource | null): void {
+    this.touch = source;
   }
 
   /** True while any gamepad is connected and readable. */
@@ -129,16 +141,23 @@ export class InputManager {
     }
     const padEdge = this.padEdge;
 
+    // --- touch -------------------------------------------------------------------
+    const tf = this.touch ? this.touch.read() : null;
+    const touchOn = tf !== null && tf.active;
+    this.touchSteer = rampToward(this.touchSteer, touchOn ? tf.steer : 0, dt);
+    const touchBrake = touchOn && tf.brake ? 1 : 0;
+    const touchThrottle = touchOn && tf.autoThrottle && !tf.brake ? 1 : 0;
+
     // --- compose -----------------------------------------------------------------
-    s.throttle = Math.max(kbThrottle, padThrottle);
-    s.brake = Math.max(kbBrake, padBrake);
-    s.steer = clamp(this.keyboardSteer + padSteer, -1, 1);
-    s.drift = this.anyHeld(KEY_DRIFT) || buttons[PAD_A] || buttons[PAD_RB];
-    s.useItemHeld = this.anyHeld(KEY_ITEM) || buttons[PAD_X] || buttons[PAD_LB];
+    s.throttle = Math.max(kbThrottle, padThrottle, touchThrottle);
+    s.brake = Math.max(kbBrake, padBrake, touchBrake);
+    s.steer = clamp(this.keyboardSteer + padSteer + this.touchSteer, -1, 1);
+    s.drift = this.anyHeld(KEY_DRIFT) || buttons[PAD_A] || buttons[PAD_RB] || (touchOn && tf.drift);
+    s.useItemHeld = this.anyHeld(KEY_ITEM) || buttons[PAD_X] || buttons[PAD_LB] || (touchOn && tf.itemHeld);
     s.lookBack = this.anyHeld(KEY_LOOKBACK) || buttons[PAD_Y];
 
-    s.useItem = this.anyPressed(KEY_ITEM) || padEdge(PAD_X) || padEdge(PAD_LB);
-    s.pause = this.anyPressed(KEY_PAUSE) || padEdge(PAD_START);
+    s.useItem = this.anyPressed(KEY_ITEM) || padEdge(PAD_X) || padEdge(PAD_LB) || (touchOn && tf.itemPressed);
+    s.pause = this.anyPressed(KEY_PAUSE) || padEdge(PAD_START) || (touchOn && tf.pausePressed);
     s.confirm = this.anyPressed(KEY_CONFIRM) || padEdge(PAD_A);
     s.back = this.anyPressed(KEY_BACK) || padEdge(PAD_B);
     s.menuUp =
