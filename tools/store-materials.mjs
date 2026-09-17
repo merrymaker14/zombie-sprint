@@ -7,8 +7,9 @@
  * Hardware GL only: software rendering drops the game into its low-quality mode.
  * Trailers follow the store rule: raw clips with headroom first, then ffmpeg cuts
  * every shot to a whole number of beats of the race theme (152 bpm) and joins them
- * end to end over the music from its first note. Lengths: full (Yandex, GD),
- * ~27 s (VK, 30 s cap), ~19 s (CrazyGames, 20 s cap), no letterbox bars.
+ * end to end over the music from its first note. Lengths: ~27 s (VK 30 s cap, GD),
+ * ~19 s landscape + portrait (CrazyGames 20 s cap, Yandex 28 s cap), no letterbox
+ * bars; real gameplay fills at least 70% of every video and Yandex screenshot.
  */
 import fs from 'fs';
 import path from 'path';
@@ -275,7 +276,7 @@ function shot(src, from, beats, out, text = null) {
     ? `,drawbox=x=0:y=ih*0.62:w=iw:h=ih*0.3:color=0x07091a@0.5:t=fill,drawtext=fontfile='${FONT}':text='ZOMBIE SPRINT':fontcolor=white:fontsize=92:x=(w-text_w)/2:y=h*0.66:shadowcolor=0x000000@0.8:shadowx=4:shadowy=4,drawtext=fontfile='${FONT}':text='${text}':fontcolor=0xb8ff7a:fontsize=40:x=(w-text_w)/2:y=h*0.8:shadowcolor=0x000000@0.8:shadowx=3:shadowy=3`
     : '';
   ff(['-ss', from.toFixed(3), '-i', src, '-t', dur.toFixed(4), '-an', '-vf', `fps=${FPS},${push}${title}`,
-    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '17', '-r', String(FPS), out]);
+    '-c:v', 'libx264', '-preset', 'slow', '-pix_fmt', 'yuv420p', '-crf', '21', '-maxrate', '5M', '-bufsize', '10M', '-r', String(FPS), out]);
   return dur;
 }
 
@@ -313,10 +314,10 @@ const plans = (goAt) => {
   const start = Math.max(0, goAt - 2 * BEAT);
   const heroes = (n, beats) => HEROES.slice(0, n).map((id) => ({ clip: `clip-hero-${id}.webm`, from: 0.25, beats }));
   const races = (beats) => TRACKS.map((id) => ({ clip: `clip-race-${id}.webm`, from: 0.4, beats }));
+  // Real gameplay (start + races) must fill at least 70% of a store video (Yandex rule): 27s = 50/68, 19s = 36/48.
   return {
-    full: [{ clip: 'clip-lineup.webm', from: 0.3, beats: 12, title: true }, ...heroes(8, 2), { clip: 'clip-start.webm', from: start, beats: 10 }, ...races(14), { clip: 'clip-lineup.webm', from: 2.2, beats: 10, title: true }],
-    '27s': [{ clip: 'clip-lineup.webm', from: 0.3, beats: 8, title: true }, ...heroes(4, 2), { clip: 'clip-start.webm', from: start, beats: 6 }, ...races(10), { clip: 'clip-lineup.webm', from: 2.2, beats: 6, title: true }],
-    '19s': [{ clip: 'clip-lineup.webm', from: 0.3, beats: 6, title: true }, ...heroes(3, 2), { clip: 'clip-start.webm', from: start, beats: 4 }, ...races(7), { clip: 'clip-lineup.webm', from: 2.2, beats: 4, title: true }],
+    '27s': [{ clip: 'clip-lineup.webm', from: 0.3, beats: 6, title: true }, ...heroes(3, 2), { clip: 'clip-start.webm', from: start, beats: 6 }, ...races(11), { clip: 'clip-lineup.webm', from: 2.2, beats: 6, title: true }],
+    '19s': [{ clip: 'clip-lineup.webm', from: 0.3, beats: 4, title: true }, ...heroes(2, 2), { clip: 'clip-start.webm', from: start, beats: 4 }, ...races(8), { clip: 'clip-lineup.webm', from: 2.2, beats: 4, title: true }],
   };
 };
 
@@ -341,14 +342,15 @@ for (const lang of LANGS) {
   const gamedist = path.join(OUT, 'gamedist');
   for (const d of [yandex, vkok, crazy, gamedist]) ensure(d);
 
-  makeScreens(yandex, 1920, 1080);
+  // Yandex screenshots must show real gameplay on at least 70% of the image: races only.
+  screens.filter((s) => s.startsWith('shot-race-')).forEach((s, i) => fit(s, path.join(yandex, `screen-${i + 1}-1920x1080.png`), 1920, 1080));
   makeScreens(crazy, 1920, 1080);
   makeScreens(vkok, 1200, 600);
 
+  // Yandex videos: 16:9 required and 9:16 optional, both up to 28 s and 100 MB.
   fit('shot-face-rosa', path.join(yandex, 'icon-512.png'), 512, 512);
   cover(path.join(yandex, 'cover-800x470.png'), 800, 470);
-  fs.copyFileSync(trailers.full, path.join(yandex, 'trailer-1280x720.mp4'));
-  ff(['-ss', ((12 + 16 + 10) * BEAT).toFixed(3), '-i', trailers.full, '-t', '10', '-an', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-movflags', '+faststart', path.join(yandex, 'video-cover.mp4')]);
+  fs.copyFileSync(trailers['19s'], path.join(yandex, 'trailer-19s-1280x720.mp4'));
 
   for (const s of [576, 278, 150]) fit('shot-face-rosa', path.join(vkok, `icon-${s}-${s === 576 ? 'universal' : s === 278 ? 'catalog' : 'small'}.png`), s, s);
   fit('shot-face-rosa', path.join(vkok, 'favicon-32.png'), 32, 32, ',eq=saturation=1.2:contrast=1.1');
@@ -361,13 +363,14 @@ for (const lang of LANGS) {
   cover(path.join(crazy, 'cover-landscape-1920x1080.png'), 1920, 1080);
   fs.copyFileSync(trailers['19s'], path.join(crazy, 'trailer-19s-1280x720.mp4'));
   ff(['-i', trailers['19s'], '-filter_complex', '[0:v]split=2[bg][fg];[bg]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,boxblur=24:2,eq=brightness=-0.06[back];[fg]scale=720:-2[front];[back][front]overlay=(W-w)/2:(H-h)/2[v]', '-map', '[v]', '-map', '0:a', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', path.join(crazy, 'trailer-19s-720x1280.mp4')]);
+  fs.copyFileSync(path.join(crazy, 'trailer-19s-720x1280.mp4'), path.join(yandex, 'trailer-19s-720x1280.mp4'));
 
   fit('shot-face-bram', path.join(gamedist, 'icon-512.png'), 512, 512);
   cover(path.join(gamedist, 'marketing-1280x720.jpg'), 1280, 720);
   cover(path.join(gamedist, 'marketing-1280x550.jpg'), 1280, 550);
   cover(path.join(gamedist, 'cover-landscape-1920x1080.png'), 1920, 1080);
   for (const [w, h] of [[512, 384], [512, 512], [200, 120]]) fit('shot-lineup', path.join(gamedist, `thumb-${w}x${h}.jpg`), w, h);
-  fs.copyFileSync(trailers.full, path.join(gamedist, 'trailer-1280x720.mp4'));
+  fs.copyFileSync(trailers['27s'], path.join(gamedist, 'trailer-27s-1280x720.mp4'));
   console.log(`[${lang}] store materials → ${path.relative(ROOT, OUT)}`);
 }
 
