@@ -265,7 +265,10 @@
       /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(location.hostname) ||
       /(^|\.)github\.io$/i.test(location.hostname);
     var src = window.__SDK_URL;
-    if (off || !src || !CLOUD_KEYS.length) { finish(); return; }
+    /* Пустой список облачных ключей SDK поднимать НЕ мешает: здесь же уходит
+       loadingStart, и без раннего SDK он уходил бы из драйвера уже после первого
+       кадра, в одну миллисекунду с loadingStop. */
+    if (off || !src) { finish(); return; }
 
     pinSdkInstance();
 
@@ -280,6 +283,10 @@
            экземпляра выше), но когда спросит, готовый ответ уже будет лежать. */
         window.__CRAZY_SDK = p;
         p.then(function () {
+          /* Начало загрузки — как можно раньше: мы ещё в <head>, бандл игры
+             грузится параллельно. loadingStop отправит драйвер по первому кадру. */
+          try { window.CrazyGames.SDK.game.loadingStart(); window.__CRAZY_LOADING_STARTED = true; } catch (e) {}
+          if (!CLOUD_KEYS.length) return;
           /* Повторной попытки здесь нет намеренно, в отличие от Яндекса. Там
              getData — сетевой запрос, и одна икота не повод отключать облако на
              сеанс. Здесь чтение синхронное и падает оно ровно по одной причине —

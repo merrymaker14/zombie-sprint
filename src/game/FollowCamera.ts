@@ -22,6 +22,10 @@ const LOOKBACK_BLEND_LAMBDA = 9;
 const POS_LAMBDA = 16;
 const DRIFT_OFFSET = (12 * Math.PI) / 180;
 const MIN_GROUND_CLEARANCE = 0.6;
+/** How far past the wall line the chase point may sit before it is pulled back over the track. */
+const CAM_WALL_SLACK = 0.3;
+/** Height gained per metre pulled back, so a camera squeezed against the kart looks down on it. */
+const CAM_WALL_LIFT = 0.35;
 const MAX_ROLL = 0.045;
 const SHAKE_DECAY = 5.5;
 
@@ -221,6 +225,7 @@ export class FollowCamera {
     const height = CHASE_HEIGHT + speedNorm * 0.2;
     // Behind direction for a given yaw (kart forward is (-sin h, 0, -cos h)).
     outPos.set(Math.sin(yaw) * dist, height, Math.cos(yaw) * dist).add(s.position);
+    this.keepOverTrack(outPos, s.trackT);
 
     // Look target: kart + up + a bit ahead along the kart's real heading (not the
     // damped camera yaw) so drifting shows the kart sliding across frame. The
@@ -229,6 +234,22 @@ export class FollowCamera {
     this.forward.set(-Math.sin(h), 0, -Math.cos(h));
     outLook.copy(s.position).addScaledVector(this.forward, LOOK_AHEAD * (1 - 2 * this.lookBackBlend));
     outLook.y += LOOK_UP;
+  }
+
+  /**
+   * A kart backed up against a barrier would put the chase point inside walls or grandstands:
+   * pull it back to the wall line (the smoothed position then follows without snapping).
+   */
+  private keepOverTrack(p: THREE.Vector3, hintT: number): void {
+    if (!this.track) return;
+    const q = this.track.query(p, hintT, this.surf);
+    if (q.surface === 'void') return;
+    const over = Math.abs(q.lateral) - (q.wallHalfWidth + CAM_WALL_SLACK);
+    if (over <= 0) return;
+    const sign = q.lateral > 0 ? 1 : -1;
+    p.x -= q.binormal.x * sign * over;
+    p.z -= q.binormal.z * sign * over;
+    p.y += Math.min(over, 5) * CAM_WALL_LIFT;
   }
 
   private apply(): void {

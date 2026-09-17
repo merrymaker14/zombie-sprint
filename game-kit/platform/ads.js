@@ -45,6 +45,17 @@ const muteFns = new Set();
  *  и музыка «Нулевого пациента» играла поверх выключенного площадкой звука. */
 export const onPlatformMute = (fn) => { muteFns.add(fn); return () => muteFns.delete(fn); };
 
+const adAudioFns = new Set();
+/** Подписка на «звук под рекламой»: true — глушить, false — можно звучать.
+ *  Отдельно от onAdBusy, потому что это РАЗНЫЕ моменты. Ввод и таймеры встают
+ *  по запросу ролика, а звук CrazyGames велит глушить только по началу показа:
+ *  «mute the audio … when the ad starts (adStarted callback)» — на отказе
+ *  площадки игра иначе молчит без единого ролика. Остальные площадки события
+ *  начала либо не дают (ВК), либо шлют его вместе с паузой, и там глушим сразу.
+ *  Раньше флаг mutesOnStart у драйвера был объявлен, но не читался никем, а
+ *  звук под роликом не глушился вовсе. */
+export const onAdAudio = (fn) => { adAudioFns.add(fn); return () => adAudioFns.delete(fn); };
+
 /* Три вещи, которые драйверам даёт хозяин. */
 const { DRIVERS, state } = createDrivers({
   /* «Мы вне площадки»: локальный файл, localhost, GitHub Pages. Разбор общий для
@@ -78,7 +89,16 @@ const { DRIVERS, state } = createDrivers({
     else if (++bannerFails >= 3) bannerGiveUp = true; },
   /* Площадка остановила игру сама (преролл GameDistribution). Поднимаем те же
      слушатели, что и на собственный показ: под чужой рекламой игра обязана стоять. */
-  platformPause: (on) => { busy = !!on; emit();
+  /* Флаг, а не счётчик: у площадки события не парные (GD шлёт SDK_GAME_PAUSE и на
+     свой показ, и отдельно, а SDK_GAME_START — один). Но это ОТДЕЛЬНЫЙ источник
+     от собственного показа: раньше обе причины писали один busy, и game_api_resume,
+     пришедший раньше onClose, снимал паузу под ещё открытым роликом. Звук под
+     паузой площадки глушится сразу: она сама сообщает, что показ уже идёт. */
+  platformPause: (on) => { platPaused = !!on;
+    /* Поздно стартовавший показ площадка закрывает этим же сигналом: колбэка
+       закрытия от неё может не быть вовсе (см. started в guarded). */
+    if (!on) for (const close of [...lateShows]) close();
+    sync();
     /* Чужая пауза — та же остановка геймплея, что и свой ролик: game_api_pause
        Яндекса и SDK_GAME_PAUSE GD обязаны размечаться stop/start, иначе площадка
        считает сессию непрерывной. Ставим не «идёт игра» вслепую, а то, чем игрок
@@ -96,13 +116,28 @@ let bannerShown = false;
 let bannerFails = 0, bannerGiveUp = false;
 let readyDone = false, wantReady = false;
 let playing = null;          // что мы в последний раз сказали площадке про геймплей
-let busy = false;            // идёт ролик
+let busy = false;            // идёт ролик или площадка остановила игру
+let showing = 0;             // собственные показы, числящиеся на экране
+let silencedShows = 0;       // из них те, под которыми звук уже заглушён
+let platPaused = false;      // площадка остановила игру сама (game_api_pause, SDK_GAME_PAUSE)
+let adMuted = false;
+const lateShows = new Set(); // показы, открытые поздним стартом (закрытие — см. guarded)
 
 const listeners = new Set();
 const emit = () => { for (const f of listeners) { try { f(busy); } catch (e) {} } };
+/* Единственное место, где из причин складываются busy и тишина. Подписчикам
+   уходят только изменения: повтор «ролик идёт» при уже идущем не событие. */
+function sync() {
+  const b = showing > 0 || platPaused;
+  const m = silencedShows > 0 || platPaused;
+  if (b !== busy) { busy = b; emit(); }
+  if (m !== adMuted) { adMuted = m; for (const f of adAudioFns) { try { f(m); } catch (e) {} } }
+}
 
 /** Идёт ли сейчас ролик. Читают и интерфейс, и машина сюжета. */
 export const adBusy = () => busy;
+/** Заглушён ли сейчас звук рекламой (см. onAdAudio). */
+export const adAudioMuted = () => adMuted;
 /** Подписка на «ролик начался/кончился» — интерфейс по ней блокирует ввод. */
 export const onAdBusy = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
 export const adReady = () => ok;
@@ -134,26 +169,54 @@ export function bindPlaying(fn) { if (typeof fn === 'function') isPlaying = fn; 
  */
 function guarded(run, waitBefore, shownOnBackstop) {
   return new Promise((resolve) => {
-    let done = false;
-    let watch = setTimeout(() => finish(false), waitBefore);
-    function finish(v) {
-      if (done) return;
-      done = true;
+    let done = false;            // ответ отдан
+    let open = false;            // показ числится на экране
+    let silenced = false;
+    let watch = 0;
+    const silence = () => {
+      if (!open || silenced) return;
+      silenced = true; silencedShows++; sync();
+    };
+    function close() {
       clearTimeout(watch);
-      busy = false; emit();
+      lateShows.delete(close);
+      if (!open) return;
+      open = false; showing--;
+      if (silenced) { silenced = false; silencedShows--; }
+      sync();
       /* Не «идёт игра» безусловно, а то, чем игрок занят на самом деле: ролик
          мог кончиться на экране концовки или в меню, и площадка получила бы
          gameplayStart там, где игры нет. По этим вызовам считают длину сессии. */
       gameplay(!!isPlaying());
+    }
+    function finish(v) {
+      close();
+      if (done) return;
+      done = true;
       resolve(v);
     }
     const started = () => {
       clearTimeout(watch);
-      /* Показ пошёл — дальше ролик закрывает игрок, ждём долго. */
+      /* ПОЗДНИЙ СТАРТ. Сторож до начала показа уже вернул управление, а площадка
+         всё-таки запустила ролик: у CrazyGames requestAd своего таймаута не имеет,
+         и adStarted на медленной сети приходит позже двенадцати секунд. Раньше
+         такой ролик шёл при busy=false — со звуком, вводом и gameplayStart.
+         Показ снова числится на экране; ответ промиса уже отдан и не меняется.
+         Закроет его колбэк площадки, её platformPause(false) или задний рубеж. */
+      if (done && !open) {
+        open = true; showing++; lateShows.add(close);
+        sync(); gameplay(false);
+      }
+      /* Показ пошёл — глушим звук (у CrazyGames только теперь) и ждём долго:
+         дальше ролик закрывает игрок. */
+      silence();
       watch = setTimeout(() => finish(!!shownOnBackstop), AD_BACKSTOP);
     };
-    busy = true; emit();
+    open = true; showing++;
+    sync();
+    if (!drv.mutesOnStart) silence();
     gameplay(false);
+    watch = setTimeout(() => finish(false), waitBefore);
     try { run(finish, started); } catch (e) { finish(false); }
   });
 }

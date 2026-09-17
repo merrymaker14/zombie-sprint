@@ -3,6 +3,8 @@ declare module 'game-kit/platform' {
 }
 
 declare module 'game-kit/platform/ads.js' {
+  export function adAudioMuted(): boolean;
+  export function adBusy(): boolean;
   export function adPlatform(): string;
   export function adReady(): boolean;
   export function adsGameReady(): void;
@@ -11,6 +13,7 @@ declare module 'game-kit/platform/ads.js' {
   export function gameplay(on: boolean): void;
   export function initAds(): void;
   export function interstitial(): Promise<boolean>;
+  export function onAdAudio(fn: (muted: boolean) => void): () => void;
   export function onAdBusy(fn: (busy: boolean) => void): () => void;
   export function onAppFocus(fn: (focused: boolean) => void): () => void;
   export function onPlatformMute(fn: (muted: boolean) => void): () => void;

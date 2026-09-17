@@ -41,6 +41,7 @@ import { RaceManager } from './RaceManager';
 import { FollowCamera } from './FollowCamera';
 import { MenuBackdrop } from './MenuBackdrop';
 import type { MenuFraming } from './MenuBackdrop';
+import { isSoftwareWebGL } from './renderQuality';
 import { HUD } from '../ui/HUD';
 import { MainMenu } from '../ui/MainMenu';
 import type { MenuPanel } from '../ui/MainMenu';
@@ -59,6 +60,34 @@ const MAX_STEPS_PER_FRAME = 8;
 const SUN_DISTANCE = 90;
 const SHADOW_HALF_EXTENT = 30;
 const EMPTY_KARTS: readonly IKart[] = [];
+/** Declared in package.json localKeys; the VK/OK bootstrap scopes it per social network and player. */
+const MUTE_KEY = 'zs_audio_muted';
+
+function muteStorageKey(): string {
+  return MUTE_KEY + ((window as unknown as { __SAVE_SCOPE?: string }).__SAVE_SCOPE || '');
+}
+/** Software rasterisers draw into a buffer about this tall (CSS scales it up) with no MSAA, shadows or post FX. */
+const SOFTWARE_BUFFER_HEIGHT = 360;
+const SOFTWARE_PARTICLE_DETAIL = 0.4;
+/**
+ * Countdown swoop start points around the grid centre as (forward, right, up) metres, best framing first.
+ * The first one whose flight into the chase camera is clear of scenery is used.
+ */
+const CINE_STARTS: readonly (readonly [number, number, number])[] = [
+  [18, 11, 6.5],
+  [18, -11, 6.5],
+  [24, 6, 7.5],
+  [24, -6, 7.5],
+  [14, 4.5, 5],
+  [14, -4.5, 5],
+  [-6, 5, 7],
+];
+/** Clearance kept around the swoop path (parallel probe rays at this offset). */
+const CINE_PATH_RADIUS = 1.2;
+/** Only scenery within this distance of the grid can block the swoop. */
+const CINE_AREA_RADIUS = 60;
+/** Sky, terrain and distant backdrops span the map; they never block a path hovering over the grid. */
+const CINE_BACKDROP_RADIUS = 400;
 
 function framingFor(panel: MenuPanel): MenuFraming {
   return panel === 'characterSelect' ? 'characters' : panel === 'trackSelect' ? 'tracks' : 'title';
@@ -105,6 +134,8 @@ export class Game {
   private readonly particles: IParticleSystem;
   private readonly postfx: IPostFX;
   private postfxOk = true;
+  /** Software WebGL: reduced resolution, no MSAA / shadows / post FX, fewer particles. */
+  private readonly lowQuality: boolean;
 
   private readonly backdrop: MenuBackdrop;
   private readonly mainMenu: MainMenu;
@@ -131,6 +162,15 @@ export class Game {
   private currentMusic: MusicTrack = 'none';
   private audioStarted = false;
   private disposed = false;
+  /** The player's M key and the host's sound button are separate switches; either one silences the game. */
+  private userMuted = false;
+  private platformMuted = false;
+  /** An advert is being requested or shown, or the host has stopped the game itself. */
+  private adBusy = false;
+  private tabHidden = false;
+  private appHidden = false;
+  /** Focus was lost while the track was loading: stop at the start instead of racing without the player. */
+  private pauseAtCountdown = false;
 
   private readonly playerInput: InputState = createEmptyInput();
   private readonly unsubs: (() => void)[] = [];
@@ -146,13 +186,14 @@ export class Game {
     this.container = container;
 
     // ---------------------------------------------------------- renderer
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    this.lowQuality = isSoftwareWebGL();
+    this.renderer = new THREE.WebGLRenderer({ antialias: !this.lowQuality, powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
-    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.enabled = !this.lowQuality;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setPixelRatio(this.canvasPixelRatio(container.clientHeight || window.innerHeight));
     this.renderer.domElement.className = 'game-canvas';
     container.appendChild(this.renderer.domElement);
 
@@ -166,11 +207,14 @@ export class Game {
     // ---------------------------------------------------------- systems
     this.input = new InputManager();
     this.audio = new AudioEngine();
-    this.particles = new ParticleSystem();
+    const particles = new ParticleSystem();
+    if (this.lowQuality) particles.setDetail(SOFTWARE_PARTICLE_DETAIL);
+    this.particles = particles;
     this.scene.add(this.particles.object);
     this.postfx = new PostFX();
     try {
-      this.postfx.init(this.renderer, this.scene, this.camera);
+      if (this.lowQuality) this.postfxOk = false;
+      else this.postfx.init(this.renderer, this.scene, this.camera);
     } catch (err) {
       console.error('[Game] PostFX init failed, using plain rendering', err);
       this.postfxOk = false;
@@ -208,16 +252,32 @@ export class Game {
     this.languageUnsub = onLanguageChange(() => {
       this.muteIndicator.textContent = t('game.muted');
     });
+    try {
+      this.userMuted = localStorage.getItem(muteStorageKey()) === '1';
+    } catch {
+      // Storage may be denied inside a platform frame; the session still works.
+    }
+    this.applyMute();
 
     // ---------------------------------------------------------- listeners
     window.addEventListener('resize', this.onResize);
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('pointerdown', this.onGesture, { passive: true });
+    // iOS grants audio activation on touchend/click rather than on pointerdown.
+    window.addEventListener('pointerup', this.onGesture, { passive: true });
+    window.addEventListener('touchend', this.onGesture, { passive: true });
     window.addEventListener('keydown', this.onGesture);
     window.addEventListener('blur', this.onBlur);
+    window.addEventListener('focus', this.onFocus);
     document.addEventListener('visibilitychange', this.onVisibility);
+    // Buttons are also pressed by Enter/Space on a focused element, which bypasses InputState.
+    window.addEventListener('click', this.onAdClickGuard, true);
+    window.addEventListener('dblclick', this.onAdClickGuard, true);
+    this.tabHidden = document.hidden;
+    this.applyBackground();
 
     this.onResize();
+    if (this.lowQuality) showToast(t('game.softwareGraphics'), 'info', 7000);
   }
 
   // ------------------------------------------------------------------ public
@@ -236,11 +296,38 @@ export class Game {
   /** Platform ad SDKs can pause the race when an advert opens or the tab hides. */
   pauseFromPlatform(): void {
     if (this.state === 'racing' || this.state === 'countdown') this.pause();
+    else if (this.state === 'loading') this.pauseAtCountdown = true;
   }
 
-  /** Keep platform-level mute controls in sync with the in-game audio engine. */
+  /** The host's own sound button. It outranks the M key and never clears the player's choice. */
   setPlatformMute(muted: boolean): void {
-    this.audio.setMuted(muted);
+    this.platformMuted = muted;
+    this.applyMute();
+  }
+
+  /**
+   * An advert is requested/shown or the host stopped the game. The world freezes and
+   * input is ignored until it ends; a running race is left paused, not resumed blindly.
+   */
+  setAdBusy(busy: boolean): void {
+    if (this.adBusy === busy) return;
+    this.adBusy = busy;
+    if (busy) this.pauseFromPlatform();
+    // Drop presses made under the advert even if no frame ran to consume them.
+    else this.input.update();
+  }
+
+  /** Silence for the advert itself; the ads layer decides when that starts. */
+  setAdAudio(muted: boolean): void {
+    this.safe(() => this.audio.setSilenced?.('ad', muted));
+  }
+
+  /** VK/OK apps report hide/restore through the bridge, GameDistribution through SDK_GAME_PAUSE/START. */
+  setAppFocus(focused: boolean): void {
+    this.appHidden = !focused;
+    this.applyBackground();
+    if (!focused) this.pauseFromPlatform();
+    else if (this.state === 'loading' && !this.tabHidden) this.pauseAtCountdown = false;
   }
 
   dispose(): void {
@@ -250,9 +337,14 @@ export class Game {
     window.removeEventListener('resize', this.onResize);
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('pointerdown', this.onGesture);
+    window.removeEventListener('pointerup', this.onGesture);
+    window.removeEventListener('touchend', this.onGesture);
     window.removeEventListener('keydown', this.onGesture);
     window.removeEventListener('blur', this.onBlur);
+    window.removeEventListener('focus', this.onFocus);
     document.removeEventListener('visibilitychange', this.onVisibility);
+    window.removeEventListener('click', this.onAdClickGuard, true);
+    window.removeEventListener('dblclick', this.onAdClickGuard, true);
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;
     this.disposeRace();
@@ -287,6 +379,11 @@ export class Game {
 
     const input = this.input.update();
     try {
+      if (this.adBusy) {
+        // Under an advert nothing advances: presses are consumed above and dropped here.
+        this.render(dt);
+        return;
+      }
       this.frame(dt, input);
     } catch (err) {
       console.error('[Game] frame error', err);
@@ -588,6 +685,7 @@ export class Game {
     this.loadingFrames = 0;
     this.loadingProgress = 0;
     this.shadersReady = false;
+    this.pauseAtCountdown = this.tabHidden || this.appHidden;
     this.loading.show(trackDef);
     this.scene.background = new THREE.Color(0x0b0b1a);
     this.scene.fog = null;
@@ -787,15 +885,90 @@ export class Game {
     forward.y = 0;
     forward.normalize();
     const right = this.tmpC.set(-forward.z, 0, forward.x);
-    const from = center.clone().addScaledVector(forward, 18).addScaledVector(right, 11);
-    from.y += 6.5;
     const look = center.clone();
     look.y += 0.8;
+    const from = this.pickCinematicStart(r, center, forward, right, look);
     r.followCamera.setCinematic(from, look, 3 * COUNTDOWN_STEP_SECONDS, 46);
 
     r.raceManager.startCountdown();
     this.setState('countdown');
     this.playMusic('race');
+    // Focus left during loading, and no second blur will come: hold at the start.
+    if (this.pauseAtCountdown || document.hidden) {
+      this.pauseAtCountdown = false;
+      this.pause();
+    }
+  }
+
+  /**
+   * Picks where the countdown swoop starts: the first framing whose straight flight into the chase
+   * camera (with some clearance) and whose view of the grid are not blocked by the start gantry,
+   * stands or other scenery. Falls back to no swoop at all.
+   */
+  private pickCinematicStart(
+    r: RaceContext,
+    center: THREE.Vector3,
+    forward: THREE.Vector3,
+    right: THREE.Vector3,
+    look: THREE.Vector3,
+  ): THREE.Vector3 {
+    // The chase camera was snapped onto the player kart when the race was built.
+    const end = this.camera.position.clone();
+    const obstacles: THREE.Object3D[] = [];
+    const sphere = new THREE.Sphere();
+    r.track.object.updateMatrixWorld(true);
+    r.track.object.traverseVisible((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const inst = o as THREE.InstancedMesh;
+      if (inst.isInstancedMesh) {
+        if (!inst.boundingSphere) inst.computeBoundingSphere();
+        sphere.copy(inst.boundingSphere as THREE.Sphere);
+      } else {
+        if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
+        sphere.copy(mesh.geometry.boundingSphere as THREE.Sphere);
+      }
+      sphere.applyMatrix4(mesh.matrixWorld);
+      if (sphere.radius > CINE_BACKDROP_RADIUS) return;
+      if (sphere.center.distanceTo(center) > sphere.radius + CINE_AREA_RADIUS) return;
+      obstacles.push(mesh);
+    });
+
+    const ray = new THREE.Raycaster();
+    const up = new THREE.Vector3(0, 1, 0);
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const dir = new THREE.Vector3();
+    // Rays start outside geometry (chase camera / free start point) so front faces register the hit.
+    const blocked = (fromPt: THREE.Vector3, toPt: THREE.Vector3): boolean => {
+      dir.subVectors(toPt, fromPt);
+      const len = dir.length();
+      if (len < 1e-3) return false;
+      ray.set(fromPt, dir.multiplyScalar(1 / len));
+      ray.far = len;
+      return ray.intersectObjects(obstacles, false).length > 0;
+    };
+    const offsets = [0, 1, -1];
+    const from = new THREE.Vector3();
+    for (const [f, s, h] of CINE_STARTS) {
+      from.copy(center).addScaledVector(forward, f).addScaledVector(right, s);
+      from.y += h;
+      let clear = true;
+      for (const ox of offsets) {
+        for (const oy of offsets) {
+          if (ox !== 0 && oy !== 0) continue;
+          a.copy(end).addScaledVector(right, ox * CINE_PATH_RADIUS).addScaledVector(up, oy * CINE_PATH_RADIUS);
+          b.copy(from).addScaledVector(right, ox * CINE_PATH_RADIUS).addScaledVector(up, oy * CINE_PATH_RADIUS);
+          if (blocked(a, b)) {
+            clear = false;
+            break;
+          }
+        }
+        if (!clear) break;
+      }
+      if (clear && !blocked(from, look)) return from;
+    }
+    return end;
   }
 
   private onPlayerFinished(r: RaceContext): void {
@@ -869,6 +1042,8 @@ export class Game {
     r.followCamera.dispose();
     r.hud.dispose();
     this.safe(() => this.particles.reset());
+    // Voices are keyed by kart id; the next race reshuffles characters and weight classes.
+    this.safe(() => this.audio.releaseVoices?.());
     if (this.postfxOk) {
       this.safe(() => {
         this.postfx.setSpeedEffect(0);
@@ -887,28 +1062,46 @@ export class Game {
     this.safe(() => this.audio.playMusic(track));
   }
 
+  /**
+   * Every gesture, not only the first: the system can stop the context later
+   * (iOS call, screen lock) and only a gesture may resume it.
+   */
   private readonly onGesture = (): void => {
-    if (this.audioStarted) return;
+    const first = !this.audioStarted;
+    if (!first && !this.audio.needsResume) return;
     this.audioStarted = true;
-    window.removeEventListener('pointerdown', this.onGesture);
-    window.removeEventListener('keydown', this.onGesture);
     this.audio
       .init()
       .then(() => {
-        if (this.currentMusic !== 'none') this.safe(() => this.audio.playMusic(this.currentMusic));
+        if (first && this.currentMusic !== 'none') this.safe(() => this.audio.playMusic(this.currentMusic));
       })
       .catch((err: unknown) => {
         console.warn('[Game] audio init failed', err);
-        this.audioStarted = false;
-        window.addEventListener('pointerdown', this.onGesture, { passive: true });
-        window.addEventListener('keydown', this.onGesture);
+        if (first) this.audioStarted = false;
       });
   };
 
   private toggleMute(): void {
-    const muted = !this.audio.muted;
-    this.safe(() => this.audio.setMuted(muted));
-    this.muteIndicator.classList.toggle('visible', muted);
+    this.userMuted = !this.userMuted;
+    try {
+      localStorage.setItem(muteStorageKey(), this.userMuted ? '1' : '0');
+    } catch {
+      // Storage may be denied inside a platform frame; the session still works.
+    }
+    this.applyMute();
+  }
+
+  /** The indicator shows what the player hears: silent if either switch is off. */
+  private applyMute(): void {
+    this.safe(() => {
+      this.audio.setMuted(this.userMuted);
+      this.audio.setSilenced?.('platform', this.platformMuted);
+    });
+    this.muteIndicator.classList.toggle('visible', this.userMuted || this.platformMuted);
+  }
+
+  private applyBackground(): void {
+    this.safe(() => this.audio.setSilenced?.('background', this.tabHidden || this.appHidden));
   }
 
   // ------------------------------------------------------------- listeners
@@ -916,7 +1109,7 @@ export class Game {
   private readonly onResize = (): void => {
     const w = Math.max(1, this.container.clientWidth || window.innerWidth);
     const h = Math.max(1, this.container.clientHeight || window.innerHeight);
-    const pr = Math.min(window.devicePixelRatio || 1, 2);
+    const pr = this.canvasPixelRatio(h);
     this.renderer.setPixelRatio(pr);
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
@@ -931,17 +1124,38 @@ export class Game {
     }
   };
 
+  private canvasPixelRatio(cssHeight: number): number {
+    if (!this.lowQuality) return Math.min(window.devicePixelRatio || 1, 2);
+    return clamp(SOFTWARE_BUFFER_HEIGHT / Math.max(1, cssHeight), 0.25, 1);
+  }
+
   private readonly onKeyDown = (ev: KeyboardEvent): void => {
-    if (ev.repeat) return;
-    if (ev.key === 'm' || ev.key === 'M') this.toggleMute();
+    if (ev.repeat || ev.ctrlKey || ev.metaKey || ev.altKey || this.adBusy) return;
+    // Latin layouts: trust the character (AZERTY has M elsewhere). Others (ЙЦУКЕН gives 'ь'): the physical key.
+    const k = ev.key.length === 1 ? ev.key.toLowerCase() : '';
+    if (k === 'm' || (ev.code === 'KeyM' && !/^[a-z]$/.test(k))) this.toggleMute();
   };
 
   private readonly onBlur = (): void => {
     if (this.state === 'racing' || this.state === 'countdown') this.pause();
+    else if (this.state === 'loading') this.pauseAtCountdown = true;
   };
 
+  private readonly onFocus = (): void => {
+    if (this.state === 'loading' && !this.tabHidden && !this.appHidden) this.pauseAtCountdown = false;
+  };
+
+  /** Blur alone (a click on the host page) keeps the sound; a hidden tab silences it. */
   private readonly onVisibility = (): void => {
+    this.tabHidden = document.hidden;
+    this.applyBackground();
     if (document.hidden) this.onBlur();
+  };
+
+  private readonly onAdClickGuard = (ev: MouseEvent): void => {
+    if (!this.adBusy) return;
+    ev.stopPropagation();
+    ev.preventDefault();
   };
 
   private safe(fn: () => void): void {

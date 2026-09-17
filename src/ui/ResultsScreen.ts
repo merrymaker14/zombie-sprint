@@ -60,6 +60,7 @@ export class ResultsScreen {
     void this.panel.offsetWidth;
     this.panel.classList.add('panel-in');
     this.visible = true;
+    this.revealPlayerRow();
   }
 
   private renderStandings(standings: readonly RaceStanding[]): void {
@@ -111,7 +112,14 @@ export class ResultsScreen {
 
   handleInput(input: InputState): void {
     if (!this.visible) return;
-    if (input.menuLeft || input.menuUp) {
+    const t = this.table;
+    const scrollable = t.scrollHeight > t.clientHeight + 1;
+    if (scrollable && (input.menuUp || input.menuDown)) {
+      // Up/down scroll a table taller than its box; the buttons sit in a row for left/right.
+      const row = t.querySelector<HTMLElement>('.standing-row');
+      const step = (row ? row.offsetHeight : 40) + 6;
+      t.scrollBy({ top: input.menuDown ? step : -step, behavior: 'smooth' });
+    } else if (input.menuLeft || input.menuUp) {
       if (this.focus.move(-1)) events.emit('ui:move', {});
     } else if (input.menuRight || input.menuDown) {
       if (this.focus.move(1)) events.emit('ui:move', {});
@@ -130,7 +138,25 @@ export class ResultsScreen {
       const key = node.dataset.i18n;
       if (key) node.textContent = t(key);
     });
-    if (this.visible) this.renderStandings(this.standings);
+    if (this.visible) {
+      this.renderStandings(this.standings);
+      this.revealPlayerRow();
+    }
+  }
+
+  /**
+   * Centre the player's row in a table that scrolls. Manual scrollTop instead of
+   * scrollIntoView, which would also scroll the overflow:hidden panel layers.
+   */
+  private revealPlayerRow(): void {
+    const t = this.table;
+    const you = t.querySelector<HTMLElement>('.standing-row.you');
+    if (!you || t.scrollHeight <= t.clientHeight + 1) {
+      t.scrollTop = 0;
+      return;
+    }
+    const top = you.offsetTop - t.offsetTop;
+    t.scrollTop = Math.max(0, top - (t.clientHeight - you.offsetHeight) / 2);
   }
 
   private activate(i: number): void {

@@ -6,6 +6,7 @@ import type { TrackDefinition } from '../core/types';
 import { clamp01 } from '../core/math';
 import { cssHex, el, TextField } from './dom';
 import { formatLaps, loadingTips, onLanguageChange, t, themeLabel, trackName } from '../core/i18n';
+import { keyLabel } from './keyLabels';
 
 const TIP_INTERVAL = 2.4;
 
@@ -50,8 +51,8 @@ export class LoadingScreen {
     this.band.style.background = `linear-gradient(90deg, ${cssHex(env.skyTop)}, ${cssHex(env.skyHorizon)}, ${cssHex(
       def.palette.road,
     )})`;
-    this.tipIndex = Math.floor(Math.random() * loadingTips().length);
-    this.tipText.set(loadingTips()[this.tipIndex]);
+    this.tipIndex = Math.floor(Math.random() * this.tips().length);
+    this.tipText.set(this.tips()[this.tipIndex]);
     this.tipTimer = 0;
     this.setProgress(0);
     this.rootNode.classList.remove('hidden');
@@ -75,7 +76,7 @@ export class LoadingScreen {
     this.tipTimer += dt;
     if (this.tipTimer >= TIP_INTERVAL) {
       this.tipTimer = 0;
-      const tips = loadingTips();
+      const tips = this.tips();
       this.tipIndex = (this.tipIndex + 1) % tips.length;
       this.tipText.set(tips[this.tipIndex]);
       this.tipNode.classList.remove('tip-in');
@@ -100,6 +101,10 @@ export class LoadingScreen {
       const key = node.dataset.i18n;
       if (key) node.textContent = t(key);
     });
-    if (this.visible) this.tipText.set(loadingTips()[this.tipIndex % loadingTips().length]);
+    if (this.visible) this.tipText.set(this.tips()[this.tipIndex % this.tips().length]);
+  }
+
+  private tips(): readonly string[] {
+    return loadingTips({ power: `${keyLabel('KeyE')} / Enter`, lookBack: keyLabel('KeyQ') });
   }
 }

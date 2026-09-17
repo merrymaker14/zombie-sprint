@@ -44,20 +44,30 @@ function boot(): void {
     return;
   }
 
-  let errorToasts = 0;
-  const report = (message: string, err: unknown): void => {
-    console.error(message, err);
-    if (errorToasts < 3) {
-      errorToasts++;
-      showToast(message, 'error');
-    }
+  // Details go to the console only; the player sees one plain translated line per session.
+  let errorShown = false;
+  const report = (detail: unknown, err: unknown): void => {
+    console.error(detail, err);
+    if (errorShown) return;
+    errorShown = true;
+    showToast(t('error.runtime'), 'error');
   };
   window.addEventListener('error', (ev) => {
-    report(t('error.runtime', { message: ev.message || 'unknown' }), ev.error);
+    // Platform SDKs and browser extensions live on other origins: not our failure to report.
+    let foreign = !ev.filename || ev.message === 'Script error.';
+    try {
+      foreign = foreign || new URL(ev.filename, location.href).origin !== location.origin;
+    } catch {
+      foreign = true;
+    }
+    if (foreign) {
+      console.error('[external script error]', ev.message, ev.error);
+      return;
+    }
+    report(ev.message, ev.error);
   });
   window.addEventListener('unhandledrejection', (ev) => {
-    const reason = ev.reason instanceof Error ? ev.reason.message : String(ev.reason);
-    report(`Unhandled promise rejection: ${reason}`, ev.reason);
+    report('[unhandledrejection]', ev.reason);
   });
 
   try {
@@ -71,21 +81,22 @@ function boot(): void {
     });
     ads.onAdBusy((busy: boolean) => {
       document.body.classList.toggle('ad-busy', busy);
+      game.setAdBusy(busy);
       ads.setGameplay(!busy && (game.currentState === 'racing' || game.currentState === 'countdown'));
     });
-    ads.onAppFocus((focused: boolean) => {
-      if (!focused && (game.currentState === 'racing' || game.currentState === 'countdown')) {
-        game.pauseFromPlatform();
-      }
-    });
+    ads.onAdAudio((muted: boolean) => game.setAdAudio(muted));
+    ads.onAppFocus((focused: boolean) => game.setAppFocus(focused));
     ads.onPlatformMute((muted: boolean) => game.setPlatformMute(muted));
     events.on('race:allFinished', () => { void ads.atRaceFinish(); });
     game.start();
     requestAnimationFrame(() => ads.ready());
     let lastBannerState = '';
     const syncBanner = (): void => {
-      const show = game.currentState === 'title' || game.currentState === 'results' || game.currentState === 'paused';
-      const state = show ? 'show' : 'hide';
+      // Hidden under an advert and asked again after it; the key also changes once the SDK is up,
+      // otherwise a request made before the SDK answered is dropped for good.
+      const show = !ads.adBusy()
+        && (game.currentState === 'title' || game.currentState === 'results' || game.currentState === 'paused');
+      const state = (show ? 'show' : 'hide') + (ads.adReady() ? '' : ':nosdk');
       if (state !== lastBannerState) {
         lastBannerState = state;
         ads.banner(show);

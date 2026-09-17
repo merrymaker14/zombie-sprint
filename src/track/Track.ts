@@ -19,6 +19,11 @@ const BOOST_PAD_HALF_LENGTH = BOOST_PAD_LENGTH / 2;
 /** Lateral distance beyond the wall line over which groundY blends from the road level to the terrain. */
 const OFFROAD_BLEND_START = 0.5;
 const OFFROAD_BLEND_END = 4.5;
+/**
+ * Over a void section the edge gives way this far inside the wall line: more than a kart's wall margin
+ * (KART_RADIUS * 0.6) and an item's bounce margin, so nothing stops against an invisible wall.
+ */
+const VOID_EDGE = 0.6;
 
 export function createTrackSample(): TrackSample {
   return {
@@ -162,8 +167,11 @@ export class Track implements ITrack {
 
     let surface: SurfaceType;
     if (a <= hw) surface = this.isBoostAt(t, a) ? 'boost' : 'road';
-    else if (a <= whw) surface = 'offroad';
-    else surface = isVoidT(this.def, t) ? 'void' : 'wall';
+    else {
+      const voidHere = isVoidT(this.def, t);
+      if (a <= (voidHere ? whw - VOID_EDGE : whw)) surface = 'offroad';
+      else surface = voidHere ? 'void' : 'wall';
+    }
     q.surface = surface;
 
     const roadY = _qs.position.y;

@@ -13,3 +13,7 @@ dist-*/
 .vite/
 *.log
 .DS_Store
+
+# store videos and material bundles are rebuilt by `npm run promo`
+store-assets/**/*.mp4
+release/*-materials.zip

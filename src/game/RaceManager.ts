@@ -26,10 +26,17 @@ const PLACE_DEBOUNCE_SECONDS = 0.3;
 const FINISH_GRACE_SECONDS = 12;
 /** A checkpoint counts as reached while the kart is within this many sectors past it. */
 const CHECKPOINT_WINDOW_SECTORS = 1.9;
+/**
+ * Checkpoints are counted while moving forward, so a kart is never more than about one sector past its
+ * last validated checkpoint; anything further ahead is really the far side of a reversed half lap.
+ */
+const PROGRESS_LEAD_SECTORS = 1.25;
 
 interface Tracker {
   kart: IKart;
   nextCheckpoint: number;
+  /** trackT at the previous racing step (checkpoints only count when moving forward). */
+  prevT: number;
   started: boolean;
   lapsCompleted: number;
   wrongWayTimer: number;
@@ -98,6 +105,7 @@ export class RaceManager {
       const tr: Tracker = {
         kart,
         nextCheckpoint: 0,
+        prevT: 0,
         started: false,
         lapsCompleted: -1,
         wrongWayTimer: 0,
@@ -210,6 +218,7 @@ export class RaceManager {
       tr.kart.resetTo(slot.position, slot.quaternion);
       tr.kart.setFrozen(true);
       s.trackT = wrap01(slot.t);
+      tr.prevT = s.trackT;
       s.lap = 1;
       s.checkpointIndex = 0;
       s.finished = false;
@@ -306,9 +315,12 @@ export class RaceManager {
     }
 
     const t = wrap01(s.trackT);
+    // Driving backwards into a checkpoint window from the far side must not count it.
+    const movingForward = trackDelta(tr.prevT, t) > 0;
+    tr.prevT = t;
 
     // --- checkpoints (in order, tolerate skipping one) ------------------------
-    if (!s.finished) {
+    if (!s.finished && movingForward) {
       const n = this.checkpointT.length;
       for (let iter = 0; iter < 2; iter++) {
         const cpT = this.checkpointT[tr.nextCheckpoint];
@@ -400,11 +412,12 @@ export class RaceManager {
     });
   }
 
-  private finish(tr: Tracker): void {
+  /** `dnf`: closed out by the post-finish grace period without crossing the line (no finish time). */
+  private finish(tr: Tracker, dnf = false): void {
     const s = tr.kart.state;
     if (s.finished) return;
     s.finished = true;
-    s.finishTime = this.time;
+    s.finishTime = dnf ? -1 : this.time;
     s.lap = this.totalLaps + 1;
     this.finishedCount++;
     s.place = this.finishedCount;
@@ -418,7 +431,7 @@ export class RaceManager {
   private forceFinishRemaining(): void {
     // Current order is already sorted: finished first, then by progress.
     for (const tr of this.order) {
-      if (!tr.kart.state.finished) this.finish(tr);
+      if (!tr.kart.state.finished) this.finish(tr, true);
     }
   }
 
@@ -429,7 +442,10 @@ export class RaceManager {
     const anchor = this.checkpointT[prev];
     // Unwrap t relative to the last validated checkpoint so a kart that reverses
     // back over the line reads as slightly negative instead of jumping to ~1.
-    const frac = anchor + trackDelta(anchor, wrap01(s.trackT));
+    let d = trackDelta(anchor, wrap01(s.trackT));
+    // Reversing more than half a lap must keep reading as further behind, not wrap to a lap ahead.
+    if (d > PROGRESS_LEAD_SECTORS / n) d -= 1;
+    const frac = anchor + d;
     // lapsCompleted is -1 until the first line crossing, so grid karts sit just below 0.
     return tr.lapsCompleted + frac;
   }
@@ -499,6 +515,7 @@ export class RaceManager {
     this.tmpQuat.setFromEuler(this.tmpEuler);
     kart.resetTo(this.tmpPos, this.tmpQuat);
     s.trackT = this.checkpointT[idx];
+    tr.prevT = s.trackT;
     s.wrongWay = false;
     tr.wrongWayTimer = 0;
     tr.voidTimer = 0;

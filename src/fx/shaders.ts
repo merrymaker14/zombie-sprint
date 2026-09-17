@@ -13,6 +13,7 @@ uniform float uTime;
 uniform float uGravity;
 uniform float uHeightPx;
 uniform float uAspect;
+uniform float uMaxPointPx;
 
 attribute vec3 aVelocity;
 attribute vec2 aTime;   // birth, life
@@ -52,7 +53,7 @@ void main() {
 
   float size = mix(aSize.x, aSize.y, t);
   float px = size * projectionMatrix[1][1] * uHeightPx * 0.5 / max(0.05, -mv.z);
-  gl_PointSize = clamp(px, 0.0, 512.0);
+  gl_PointSize = clamp(px, 0.0, uMaxPointPx);
 
   float fadeIn = smoothstep(0.0, 0.06, t);
   float fadeOut = 1.0 - smoothstep(0.7, 1.0, t);

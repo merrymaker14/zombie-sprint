@@ -121,7 +121,6 @@ export class Kart implements IKart {
   private padCooldown = 0;
   private wallCooldown = 0;
   private readonly collisionCooldown = new Float32Array(32);
-  private frozenThrottleTime = 0;
   private disposed = false;
 
   // --- visual internals --------------------------------------------------------
@@ -227,7 +226,6 @@ export class Kart implements IKart {
       s.speed = 0;
       this.lateralVel = 0;
       this.slip = 0;
-      this.frozenThrottleTime = this.input.throttle > 0.5 ? this.frozenThrottleTime + dt : 0;
       s.steerVisual = damp(s.steerVisual, this.input.steer, 10, dt);
       this.vy -= GRAVITY * dt;
       this.freeY += this.vy * dt;
@@ -354,8 +352,39 @@ export class Kart implements IKart {
     this.visHeadYaw = damp(this.visHeadYaw, lookTarget, 8, dt);
     const leanTarget = -s.steerVisual * 0.15 - (s.isDrifting ? s.driftDirection * 0.08 : 0);
     this.visHeadLean = damp(this.visHeadLean, leanTarget, 8, dt);
-    p.driverHead.rotation.set(0, this.visHeadYaw, this.visHeadLean);
+    // Zombie wobble: a loose, lolling head that gets dizzy while spinning out.
+    const t = this.time;
+    const phase = s.id * 1.9;
+    const wobble = s.isSpinning ? 1 : 0.3 + 0.25 * speedRatio;
+    p.driverHead.rotation.set(
+      Math.sin(t * 2.3 + phase) * 0.05 * wobble,
+      this.visHeadYaw + Math.sin(t * 1.4 + phase) * 0.07 * wobble,
+      this.visHeadLean + Math.sin(t * 1.9 + phase * 0.7) * 0.08 * wobble,
+    );
     p.driver.rotation.set(clamp(this.accelEst * 0.004, -0.08, 0.1), 0, this.visHeadLean * 0.35);
+
+    // Scarves and headband tails flutter harder with speed.
+    const flaps = p.flaps;
+    if (flaps) {
+      const k = 0.3 + speedRatio;
+      for (let i = 0; i < flaps.length; i++) {
+        flaps[i].rotation.set(
+          Math.sin(t * (6 + 10 * speedRatio) + i * 1.3) * 0.07 * k,
+          Math.sin(t * (4.5 + 7 * speedRatio) + i) * 0.12 * k,
+          Math.sin(t * (7 + 9 * speedRatio) + i * 2.1) * 0.09 * k,
+        );
+      }
+    }
+    // Neck-bolt sparks crackle on and off.
+    const sparks = p.sparks;
+    if (sparks) {
+      const on = Math.sin(t * 23 + phase) + Math.sin(t * 37.7) > -0.4;
+      const flick = 0.85 + 0.3 * Math.abs(Math.sin(t * 41));
+      for (let i = 0; i < sparks.length; i++) {
+        sparks[i].visible = on;
+        sparks[i].scale.setScalar(flick);
+      }
+    }
 
     // Star rainbow.
     if (s.isInvincible) {
@@ -470,11 +499,7 @@ export class Kart implements IKart {
 
   setFrozen(frozen: boolean): void {
     const s = this.state;
-    if (s.isFrozen && !frozen) {
-      // Rocket start: throttle pressed shortly before GO.
-      const t = this.frozenThrottleTime;
-      if (t > 0 && t < 0.45) this.applyBoost(0.3, 1.2, 'start');
-    }
+    // The start boost is decided by RaceManager at GO (player timing windows, AI chance per difficulty).
     s.isFrozen = frozen;
     if (frozen) {
       if (s.isDrifting) this.endDrift(false);
@@ -482,7 +507,6 @@ export class Kart implements IKart {
       s.velocity.set(0, 0, 0);
       this.lateralVel = 0;
       this.slip = 0;
-      this.frozenThrottleTime = 0;
     }
   }
 
@@ -808,7 +832,8 @@ export class Kart implements IKart {
       }
     }
 
-    const isVoid = q.surface === 'void';
+    // Once a kart has dropped well below the road it keeps falling, even if it drifts back over the track line.
+    const isVoid = q.surface === 'void' || (s.isAirborne && this.freeY < q.groundY - 1);
 
     // --- walls ---------------------------------------------------------------
     if (!isVoid && !s.isFrozen) {

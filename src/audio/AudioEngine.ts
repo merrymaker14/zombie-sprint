@@ -5,7 +5,7 @@
  * player and the star jingle. Everything is synthesised with the Web Audio API.
  */
 import * as THREE from 'three';
-import type { IAudioEngine, IKart, MusicTrack } from '../core/types';
+import type { AudioSilenceReason, IAudioEngine, IKart, MusicTrack } from '../core/types';
 import { events } from '../core/events';
 import { clamp01 } from '../core/math';
 import { KART_COUNT } from '../core/constants';
@@ -56,6 +56,10 @@ export class AudioEngine implements IAudioEngine {
 
   private _ready = false;
   private _muted = false;
+  /** Every other reason for silence; the master gain is computed from all of them in applyOutput(). */
+  private readonly silence = new Set<AudioSilenceReason>();
+  private worldPaused = false;
+  private suspendChain: Promise<unknown> = Promise.resolve();
   private masterVolume = 1;
   private pendingTrack: MusicTrack = 'none';
   /** 1 while kart id has an active star (from events); cleared when the kart disappears or the star ends. */
@@ -83,6 +87,9 @@ export class AudioEngine implements IAudioEngine {
     }));
     u.push(events.on('race:start', () => this.crowd?.cheerBurst(1)));
     u.push(events.on('race:finish', (e) => { if (e.isPlayer) this.crowd?.cheerBurst(1); }));
+    // Engines, skids, crowd and the star jingle only get their levels from update(),
+    // which does not run while paused: fade those buses out instead of freezing them.
+    u.push(events.on('game:stateChange', (e) => this.setWorldPaused(e.to === 'paused')));
   }
 
   get ready(): boolean {
@@ -91,6 +98,12 @@ export class AudioEngine implements IAudioEngine {
 
   get muted(): boolean {
     return this._muted;
+  }
+
+  /** iOS stops the context on a call or screen lock; only resume() from a gesture revives it. */
+  get needsResume(): boolean {
+    const s = this.ctx?.state;
+    return !!s && s !== 'running' && s !== 'closed' && !this.silence.has('background');
   }
 
   // -------------------------------------------------------------------------
@@ -136,12 +149,15 @@ export class AudioEngine implements IAudioEngine {
       this._ready = true;
       if (this.pendingTrack !== 'none' && this.music) this.music.play(this.pendingTrack);
     }
+    // A gesture can arrive while the app is backgrounded (an ad overlay inside the page).
+    this.syncSuspend();
   }
 
   private buildGraph(ctx: AudioContext): void {
     // master → glue compressor → brickwall-ish limiter → destination
     const master = ctx.createGain();
-    master.gain.value = this._muted ? 0 : this.masterVolume;
+    // Reasons set before the first gesture (player's saved mute, platform mute) must hold from the first sample.
+    master.gain.value = this.outputGain();
     const compressor = ctx.createDynamicsCompressor();
     compressor.threshold.value = -12;
     compressor.knee.value = 20;
@@ -166,14 +182,14 @@ export class AudioEngine implements IAudioEngine {
     };
     const musicDuck = bus(1, master);
     const musicBus = bus(dbToGain(MUSIC_BUS_DB), musicDuck);
-    const sfxBus = bus(1, master);
+    const sfxBus = bus(this.worldPaused ? 0 : 1, master);
     // Eight engine loops sum on this bus; a tanh stage keeps the sum from ever
     // hard-clipping regardless of how many karts crowd the camera.
     const enginesClip = ctx.createWaveShaper();
     enginesClip.curve = softClipCurve(1.6, 2048);
     enginesClip.oversample = 'none';
     enginesClip.connect(master);
-    const enginesBus = bus(ENGINES_BUS_GAIN, enginesClip);
+    const enginesBus = bus(this.worldPaused ? 0 : ENGINES_BUS_GAIN, enginesClip);
     const uiBus = bus(UI_BUS_GAIN, master);
 
     this.master = master;
@@ -395,20 +411,77 @@ export class AudioEngine implements IAudioEngine {
 
   setMasterVolume(v: number): void {
     this.masterVolume = clamp01(v);
-    if (this.master && this.ctx && !this._muted) {
-      this.master.gain.setTargetAtTime(this.masterVolume, this.ctx.currentTime, 0.05);
-    }
+    this.applyOutput();
   }
 
+  /** The player's own mute (M key). */
   setMuted(muted: boolean): void {
     this._muted = muted;
-    if (this.master && this.ctx) {
-      const g = this.master.gain;
-      const now = this.ctx.currentTime;
-      g.cancelScheduledValues(now);
-      g.setValueAtTime(g.value, now);
-      g.linearRampToValueAtTime(muted ? 0 : this.masterVolume, now + 0.12);
+    this.applyOutput();
+  }
+
+  setSilenced(reason: AudioSilenceReason, on: boolean): void {
+    if (this.silence.has(reason) === on) return;
+    if (on) this.silence.add(reason);
+    else this.silence.delete(reason);
+    this.applyOutput();
+    if (reason === 'background') this.syncSuspend();
+  }
+
+  releaseVoices(): void {
+    for (let i = 0; i < this.engines.length; i++) {
+      const slot = this.engines[i];
+      if (slot) slot.voice.dispose();
+      this.engines[i] = null;
     }
+    this.starFlags.fill(0);
+    this.starJingle?.stop(0.2);
+    this.starJingle = null;
+    // A long step drains the cheer swell and fades the crowd to silence.
+    this.crowd?.update(10, null);
+  }
+
+  private outputGain(): number {
+    return this._muted || this.silence.size > 0 ? 0 : this.masterVolume;
+  }
+
+  /** The single place where the master level is decided from every reason for silence. */
+  private applyOutput(): void {
+    if (!this.master || !this.ctx) return;
+    const g = this.master.gain;
+    const now = this.ctx.currentTime;
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(g.value, now);
+    g.linearRampToValueAtTime(this.outputGain(), now + 0.12);
+  }
+
+  /**
+   * A hidden tab or app also stops the clock: no CPU for silent voices, and the
+   * look-ahead sequencer does not pile up notes to fire all at once on return.
+   * Calls are chained because suspend() and resume() settle asynchronously.
+   */
+  private syncSuspend(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.suspendChain = this.suspendChain
+      .then(() => {
+        if (this.ctx !== ctx || ctx.state === 'closed') return undefined;
+        const background = this.silence.has('background');
+        if (background && ctx.state === 'running') return ctx.suspend();
+        if (!background && ctx.state !== 'running' && this._ready) return ctx.resume();
+        return undefined;
+      })
+      .catch(() => undefined);
+  }
+
+  private setWorldPaused(paused: boolean): void {
+    if (this.worldPaused === paused) return;
+    this.worldPaused = paused;
+    const ctx = this.ctx;
+    if (!ctx || !this.enginesBus || !this.sfxBus) return;
+    const now = ctx.currentTime;
+    this.enginesBus.gain.setTargetAtTime(paused ? 0 : ENGINES_BUS_GAIN, now, 0.05);
+    this.sfxBus.gain.setTargetAtTime(paused ? 0 : 1, now, 0.05);
   }
 }
 

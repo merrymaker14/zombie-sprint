@@ -530,6 +530,15 @@ kbd {
   animation: press-pulse 1.5s ease-in-out infinite;
 }
 
+.press-start-touch,
+html.touch-mode .press-start-keys {
+  display: none;
+}
+
+html.touch-mode .press-start-touch {
+  display: inline-block;
+}
+
 @keyframes press-pulse {
   0%,
   100% {
@@ -557,10 +566,11 @@ kbd {
   }
 }
 
+/* Sits above the press-start pill (its bottom offset + its height + a gap), never under it. */
 .controls-legend {
   position: absolute;
   left: 3vw;
-  bottom: 3vh;
+  bottom: calc(clamp(28px, 7vh, 70px) + 66px);
   display: grid;
   grid-template-columns: auto auto;
   gap: 8px 14px;
@@ -578,14 +588,9 @@ kbd {
   align-self: center;
 }
 
-.version {
-  position: absolute;
-  right: 3vw;
-  bottom: 3vh;
-  font-size: 12px;
-  letter-spacing: 0.12em;
-  color: var(--ink-faint);
-  text-transform: uppercase;
+/* On-screen buttons replace the keyboard legend while the player uses touch. */
+html.touch-mode .controls-legend {
+  display: none;
 }
 
 /* Select panels ----------------------------------------------------------- */
@@ -652,20 +657,90 @@ html[lang='ru'] .panel-tracks .select-header::after {
   margin: 0;
 }
 
+/* The footer with Back / Start never shrinks; the card grid gives way instead
+   (MainMenu.fitLayout picks the `.fit-N` step that makes the cards fit). */
+.panel-select > .select-footer {
+  flex: none;
+}
+
+.panel-chars .card-grid {
+  position: relative;
+  min-height: 0;
+  /* Cards clip their overflow, so auto rows would shrink and cut them instead of overflowing. */
+  grid-auto-rows: max-content;
+}
+
 .char-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-/* Track select: header top-left, cards + footer occupy the lower ~45% under the kart. */
+/* Track select: header top-left, cards + footer occupy the lower ~45% under the kart.
+   The header stays in the flow, so cards can never rise over it on short screens. */
 .panel-tracks {
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 
 .panel-tracks .select-header {
-  position: absolute;
-  top: 3vh;
-  left: 3.5vw;
+  align-self: flex-start;
+  margin-bottom: auto;
+}
+
+/* Fit steps, cumulative: 1 drops blurbs, 2 tightens, 3 drops secondary info, 4 scrolls. */
+.panel-chars.fit-1 .card-tag,
+.panel-tracks.fit-1 .card-tag,
+.panel-tracks.fit-1 .difficulty-blurb,
+.panel-select.fit-2 .select-header::after,
+.panel-select.fit-2 .select-info-tagline,
+.panel-chars.fit-3 .stats,
+.panel-tracks.fit-3 .track-meta,
+.panel-tracks.fit-3 .difficulty-label {
+  display: none;
+}
+
+.panel-select.fit-2 .select-header .panel-title {
+  font-size: clamp(22px, 5vh, 30px);
+  margin: 2px 0 0;
+}
+
+.panel-select.fit-2 .card {
+  padding: 8px 8px 7px;
+}
+
+.panel-select.fit-2 .card-name {
+  font-size: clamp(13px, 1.3vw, 17px);
+  margin-top: 5px;
+}
+
+.panel-select.fit-2 .select-footer {
+  padding: 7px 14px;
+}
+
+.panel-select.fit-2 .select-footer .btn {
+  padding: 9px 18px;
+}
+
+.panel-tracks.fit-2 .track-art {
+  height: clamp(36px, 11vh, 56px);
+}
+
+.panel-tracks.fit-2 .seg {
+  padding: 6px 12px;
+}
+
+.panel-chars.fit-4 .card-grid,
+.panel-tracks.fit-4 .card-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+  align-content: start;
+  grid-auto-rows: max-content;
+  /* Room for the lifted, ringed selected card inside the scroll box. */
+  padding: 10px 8px 12px;
 }
 
 .panel-tracks .card-grid {
@@ -823,75 +898,50 @@ html[lang='ru'] .panel-tracks .select-header::after {
   background: repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.07) 0 6px, transparent 6px 14px);
 }
 
-.char-zombie-head {
+.char-zombie-portrait {
   position: absolute;
-  left: 50%;
-  top: 10%;
-  width: 42%;
-  aspect-ratio: 1;
-  transform: translateX(-50%);
-  border-radius: 48% 48% 44% 44%;
-  background: radial-gradient(circle at 35% 28%, #e8ffb4 0%, var(--zombie-skin, #9fcf78) 45%, #4a795f 100%);
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.45), inset 0 -6px 12px rgba(0, 0, 0, 0.35);
+  inset: 0;
   z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  pointer-events: none;
 }
 
-.char-zombie-head::before {
-  content: '';
-  position: absolute;
-  left: 15%;
-  top: -9%;
-  width: 70%;
-  height: 28%;
-  border-radius: 60% 60% 35% 35%;
-  background: linear-gradient(145deg, #203d3c, #102328);
-  transform: rotate(-7deg);
-  box-shadow: 8px 2px 0 -2px rgba(16, 35, 40, 0.75), -7px 0 0 -3px rgba(16, 35, 40, 0.65);
+/* Slightly taller than the swatch: the shoulders run off the bottom edge like a bust. */
+.char-zombie-portrait svg {
+  display: block;
+  flex: none;
+  height: 116%;
+  width: auto;
+  overflow: visible;
+  filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.45));
 }
 
-.char-zombie-eye {
-  position: absolute;
-  top: 38%;
-  width: 19%;
-  height: 25%;
-  border-radius: 50%;
-  background: #eaffbd;
-  box-shadow: 0 0 7px #a8ff49, inset 0 -2px 2px rgba(0, 0, 0, 0.3);
+.char-zombie-glow {
+  filter: drop-shadow(0 0 1.5px #ffffff);
 }
 
-.char-zombie-eye::after {
-  content: '';
-  position: absolute;
-  left: 38%;
-  top: 28%;
-  width: 30%;
-  height: 45%;
-  border-radius: 50%;
-  background: #17252a;
+.char-zombie-nod {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: char-zombie-nod 3.6s ease-in-out infinite;
 }
 
-.char-zombie-eye-l { left: 20%; }
-.char-zombie-eye-r { right: 20%; }
-
-.char-zombie-mouth {
-  position: absolute;
-  left: 29%;
-  top: 70%;
-  width: 42%;
-  height: 12%;
-  border-radius: 0 0 45% 45%;
-  background: #2a2030;
-  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.16);
+.char-zombie-pixel .char-zombie-nod,
+.char-zombie-juno .char-zombie-nod {
+  animation-duration: 2.6s;
 }
 
-.char-zombie-tooth {
-  position: absolute;
-  left: 25%;
-  top: -2px;
-  width: 18%;
-  height: 70%;
-  background: #f2f0c9;
-  transform: rotate(8deg);
+@keyframes char-zombie-nod {
+  0%, 100% { transform: rotate(-3deg); }
+  50% { transform: rotate(3deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .char-zombie-nod {
+    animation: none;
+  }
 }
 
 .char-wheel {
@@ -1040,10 +1090,23 @@ html[lang='ru'] .panel-tracks .select-header::after {
   flex-wrap: nowrap;
 }
 
+/* One-line buttons: a wrapped label doubled the footer height in Russian. */
+.select-footer .btn {
+  flex: none;
+  white-space: nowrap;
+}
+
+.select-info {
+  min-width: 0;
+}
+
 .select-info-name {
   font-family: var(--display);
-  font-size: clamp(22px, 2.4vw, 32px);
+  font-size: clamp(18px, 1.9vw, 30px);
   letter-spacing: 0.06em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .select-info-tagline {
@@ -1264,9 +1327,22 @@ html[lang='ru'] .panel-tracks .select-header::after {
   pointer-events: auto;
 }
 
+/* Never taller than the screen: the standings table is the part that shrinks and scrolls. */
 .results-panel {
   width: min(92vw, 720px);
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100% - 16px);
+}
+
+.results-panel > * {
+  flex: none;
+}
+
+.results-panel > .standings {
+  flex: 0 1 auto;
+  min-height: 0;
 }
 
 .results-panel.gold::before {
@@ -1297,6 +1373,8 @@ html[lang='ru'] .panel-tracks .select-header::after {
   max-height: 46vh;
   overflow: auto;
   padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
 }
 
 .standing-row {
@@ -1770,7 +1848,12 @@ html[lang='ru'] .panel-tracks .select-header::after {
   animation: count-in var(--ttl) var(--ease-out) both;
 }
 
+/* A whole phrase, not a digit: sized to fit the width (20vw made it twice the screen). */
 .hud-go {
+  font-size: clamp(36px, 7vw, 120px);
+  max-width: 94vw;
+  white-space: normal;
+  line-height: 1.05;
   color: transparent;
   background: linear-gradient(180deg, #fffbe6 0%, #ffd23f 45%, #ff7a2f 100%);
   -webkit-background-clip: text;
@@ -1974,6 +2057,12 @@ html[lang='ru'] .panel-tracks .select-header::after {
   transform: translate(-50%, 0);
 }
 
+/* Under an advert the buttons do not react to the pointer (keyboard is stopped in Game). */
+body.ad-busy #ui,
+body.ad-busy #ui * {
+  pointer-events: none;
+}
+
 .toast-host {
   position: fixed;
   left: 50%;
@@ -2015,6 +2104,13 @@ html[lang='ru'] .panel-tracks .select-header::after {
   transform: translateY(8px);
 }
 
+/* Platform display banner: game-kit (bannerReserve) sets `has-banner` and the strip height
+   `--bnr` on <body> while its banner is on screen. Overlays end above that strip, so the
+   title prompt, pause and results buttons are never under the ad. */
+body.has-banner #ui .screen {
+  bottom: var(--bnr, 0px);
+}
+
 /* ----------------------------------------------------------------------------
    Responsive (down to 1024×600)
    --------------------------------------------------------------------------- */
@@ -2044,8 +2140,20 @@ html[lang='ru'] .panel-tracks .select-header::after {
   .select-footer {
     padding: 10px 16px;
   }
+  /* Compact legend instead of none: below 720 px it was the only place naming drift and power keys. */
   .controls-legend {
-    display: none;
+    bottom: calc(clamp(28px, 7vh, 70px) + 58px);
+    gap: 3px 10px;
+    padding: 9px 12px;
+    font-size: 11px;
+  }
+  .controls-legend kbd {
+    font-size: 10px;
+    padding: 1px 6px;
+    min-width: 28px;
+  }
+  .legend-row span {
+    max-width: 15em;
   }
   .logo-word {
     font-size: clamp(44px, 6.4vw, 84px);
@@ -2061,6 +2169,48 @@ html[lang='ru'] .panel-tracks .select-header::after {
   }
 }
 
+/* Results: all eight standings fit without scrolling from 720 px up. */
+@media (max-height: 900px) {
+  .standings {
+    gap: 3px;
+  }
+  .standing-row {
+    padding: 5px 14px;
+  }
+  .standing-place {
+    font-size: 18px;
+  }
+  .standing-name {
+    font-size: 16px;
+  }
+  .results-title {
+    font-size: clamp(36px, 6vh, 64px);
+  }
+  .results-sub {
+    margin-bottom: 10px;
+  }
+}
+
+@media (max-height: 520px) {
+  .results-panel {
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+  .results-title {
+    font-size: clamp(28px, 8vh, 44px);
+    margin: 2px 0 2px;
+  }
+  .results-sub {
+    margin-bottom: 6px;
+  }
+  .results-panel .actions {
+    margin-top: 10px;
+  }
+  .results-panel .actions .btn {
+    padding: 9px 18px;
+  }
+}
+
 @media (max-width: 1100px) {
   .difficulty-blurb {
     display: none;
@@ -2068,6 +2218,48 @@ html[lang='ru'] .panel-tracks .select-header::after {
   .select-footer {
     flex-wrap: wrap;
     justify-content: center;
+  }
+  /* The character footer stays one row: name on the left, buttons on the right. */
+  .panel-chars .select-footer {
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .panel-chars .select-info-tagline {
+    display: none;
+  }
+  /* Up to two short lines, never taller than the buttons, so the footer height stays put. */
+  .panel-chars .select-info-name {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: normal;
+    font-size: clamp(13px, 1.7vw, 18px);
+    line-height: 1.05;
+  }
+  .select-footer .btn {
+    padding: 10px 16px;
+    letter-spacing: 0.1em;
+  }
+}
+
+@media (max-height: 400px) {
+  /* A very short keyboard window has room for the logo, the legend and the prompt, not the joke. */
+  html:not(.touch-mode) .zombie-joke {
+    display: none;
+  }
+}
+
+@media (max-height: 460px) {
+  .controls-legend {
+    bottom: calc(clamp(28px, 7vh, 70px) + 52px);
+    gap: 2px 8px;
+    padding: 7px 10px;
+    font-size: 10px;
+  }
+  .controls-legend kbd {
+    font-size: 9px;
+    padding: 0 5px;
   }
 }
 

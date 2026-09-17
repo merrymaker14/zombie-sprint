@@ -28,6 +28,11 @@ const ADDITIVE_CAPACITY = 6144;
 const ALPHA_CAPACITY = 4096;
 const MAX_KARTS = Math.max(KART_COUNT, 16);
 const MAX_PER_EMITTER_PER_FRAME = 14;
+/**
+ * Largest sprite as a share of the drawing-buffer height (512 px at 720 p). A fixed pixel cap
+ * shrank close effects on HiDPI and large windows.
+ */
+const MAX_POINT_SCREEN_SHARE = 0.71;
 
 /** Reusable spawn descriptor. Emitters fill this and call group.spawn(). */
 interface SpawnParams {
@@ -338,6 +343,8 @@ class ParticleGroup {
   private readonly attributes: THREE.BufferAttribute[];
   private readonly supportsRanges: boolean;
   private readonly drawSize = new THREE.Vector2();
+  /** Driver limit for gl_PointSize (read on first render). */
+  private maxPointSize = 0;
 
   constructor(capacity: number, additive: boolean, atlas: THREE.Texture, renderOrder: number) {
     this.capacity = capacity;
@@ -386,6 +393,7 @@ class ParticleGroup {
         uGravity: { value: GRAVITY },
         uHeightPx: { value: 1080 },
         uAspect: { value: 16 / 9 },
+        uMaxPointPx: { value: 512 },
         uAtlas: { value: atlas },
       },
       vertexShader: PARTICLE_VERTEX,
@@ -406,6 +414,12 @@ class ParticleGroup {
       renderer.getDrawingBufferSize(this.drawSize);
       this.material.uniforms.uHeightPx.value = this.drawSize.y;
       this.material.uniforms.uAspect.value = this.drawSize.x / Math.max(1, this.drawSize.y);
+      if (this.maxPointSize <= 0) {
+        const gl = renderer.getContext();
+        const range = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE) as Float32Array | null;
+        this.maxPointSize = range && range[1] > 0 ? range[1] : 512;
+      }
+      this.material.uniforms.uMaxPointPx.value = Math.min(this.maxPointSize, this.drawSize.y * MAX_POINT_SCREEN_SHARE);
     };
     this.points = points;
   }
@@ -514,6 +528,8 @@ export class ParticleSystem implements IParticleSystem {
   private readonly accStar = new Float32Array(MAX_KARTS);
   private accStreak = 0;
   private readonly boostSource = new Uint8Array(MAX_KARTS);
+  /** Scales continuous emitter rates (lowered on software renderers). */
+  private detail = 1;
 
   // Results-screen confetti shower (player podium). 0 = idle.
   private confettiTimer = 0;
@@ -915,8 +931,13 @@ export class ParticleSystem implements IParticleSystem {
     }
   }
 
+  /** Emitter density multiplier in (0, 1]; 1 = full effects. */
+  setDetail(scale: number): void {
+    this.detail = Math.max(0.1, clamp01(scale));
+  }
+
   private take(acc: Float32Array, idx: number, rate: number, dt: number): number {
-    acc[idx] += rate * dt;
+    acc[idx] += rate * this.detail * dt;
     let n = Math.floor(acc[idx]);
     acc[idx] -= n;
     if (n > MAX_PER_EMITTER_PER_FRAME) n = MAX_PER_EMITTER_PER_FRAME;

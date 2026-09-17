@@ -10,7 +10,8 @@
     "build:targets": "node tools/build-targets.mjs",
     "promo": "node tools/store-materials.mjs",
     "preview": "vite preview --host",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node tests/run.mjs"
   },
   "dependencies": {
     "@vkontakte/vk-bridge": "^3.0.2",

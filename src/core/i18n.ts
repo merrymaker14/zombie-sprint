@@ -18,8 +18,8 @@ const TEXT: Record<Language, Record<string, string>> = {
     'language.ru': 'РУ',
     'language.en': 'EN',
     'brand.subtitle': 'ZOMBIE CHAMPIONSHIP',
-    'brand.version': 'v1.0 · Three.js · 100% procedural · gamepad ready',
     'menu.pressStart': 'PRESS ENTER / CLICK TO RUN',
+    'menu.pressStartTouch': 'TAP TO RUN',
     'menu.chapter1': 'CHAPTER 1 / 2 · ZOMBIE RACERS',
     'menu.chapter2': 'CHAPTER 2 / 2 · ZOMBIE CHAMPIONSHIP',
     'menu.chooseZombie': 'CHOOSE YOUR ZOMBIE',
@@ -110,9 +110,12 @@ const TEXT: Record<Language, Record<string, string>> = {
     'fatal.startTitle': 'FAILED TO START',
     'fatal.startBody': 'Something went wrong while starting Zombie Sprint. Reload the game and try again.',
     'game.muted': '🔇 MUTED',
+    'game.softwareGraphics': 'Hardware acceleration is off, so the graphics are simplified.',
+    'game.rotateTitle': 'TURN YOUR DEVICE',
+    'game.rotateBody': 'The race runs in landscape. On a computer, just make the window wider.',
     'error.buildRace': 'Could not build the race. Please try another route.',
     'error.noTracks': 'No zombie routes are available yet.',
-    'error.runtime': 'Runtime error: {message}',
+    'error.runtime': 'Something went wrong. If the game misbehaves, reload it.',
     'character.zippy.name': 'Grave Sprinter',
     'character.zippy.tagline': 'The fastest zombie on the starting line.',
     'character.pixel.name': 'Neon Ghoul',
@@ -137,14 +140,26 @@ const TEXT: Record<Language, Record<string, string>> = {
     'track.frostbite_falls.description': 'A slippery ice run past abandoned shelters and a frozen-lake shortcut.',
     'track.neon_nexus.name': 'Neon Quarantine',
     'track.neon_nexus.description': 'Lockdown lights, rooftop jumps, and three big corners for brave racers.',
+    // Trackside signs painted on canvas textures.
+    'sign.title': 'ZOMBIE SPRINT',
+    'sign.startFinish': 'START · FINISH',
+    'sign.restInSpeed': 'REST IN SPEED',
+    'sign.cautionHorde': 'CAUTION: HORDE',
+    'sign.hordeAhead': 'HORDE AHEAD',
+    'sign.nextExit': 'NEXT EXIT: NOWHERE',
+    'sign.quarantine': 'QUARANTINE',
+    'sign.quarantineZone': 'QUARANTINE ZONE',
+    'sign.keepFrozen': 'KEEP ZOMBIES FROZEN',
+    'sign.zoneClosed': 'ZONE CLOSED',
+    'sign.zombieCrossing': 'ZOMBIE CROSSING',
   },
   ru: {
     'language.label': 'ЯЗЫК',
     'language.ru': 'РУ',
     'language.en': 'EN',
     'brand.subtitle': 'ЧЕМПИОНАТ ЗОМБИ',
-    'brand.version': 'v1.0 · Three.js · 100% процедурная игра · поддержка геймпада',
     'menu.pressStart': 'НАЖМИ ENTER / КЛИКНИ, ЧТОБЫ БЕЖАТЬ',
+    'menu.pressStartTouch': 'КОСНИСЬ ЭКРАНА, ЧТОБЫ БЕЖАТЬ',
     'menu.chapter1': 'ГЛАВА 1 / 2 · ЗОМБИ-ГОНЩИКИ',
     'menu.chapter2': 'ГЛАВА 2 / 2 · ЧЕМПИОНАТ ЗОМБИ',
     'menu.chooseZombie': 'ВЫБЕРИ ЗОМБИ',
@@ -235,9 +250,12 @@ const TEXT: Record<Language, Record<string, string>> = {
     'fatal.startTitle': 'НЕ УДАЛОСЬ ЗАПУСТИТЬ',
     'fatal.startBody': 'При запуске Zombie Sprint что-то пошло не так. Перезагрузи игру и попробуй ещё раз.',
     'game.muted': '🔇 ЗВУК ВЫКЛЮЧЕН',
+    'game.softwareGraphics': 'Аппаратное ускорение выключено, поэтому графика упрощена.',
+    'game.rotateTitle': 'ПОВЕРНИ УСТРОЙСТВО',
+    'game.rotateBody': 'Гонка идёт в горизонтальном режиме. На компьютере просто сделай окно шире.',
     'error.buildRace': 'Не удалось построить трассу. Попробуй другую.',
     'error.noTracks': 'Трассы для зомби пока недоступны.',
-    'error.runtime': 'Ошибка игры: {message}',
+    'error.runtime': 'Что-то пошло не так. Если игра ведёт себя странно, перезагрузи её.',
     'character.zippy.name': 'Могильный Спринтер',
     'character.zippy.tagline': 'Самый быстрый зомби на старте.',
     'character.pixel.name': 'Неоновый Упырь',
@@ -262,6 +280,18 @@ const TEXT: Record<Language, Record<string, string>> = {
     'track.frostbite_falls.description': 'Скользкий маршрут мимо убежищ и замёрзшего озера.',
     'track.neon_nexus.name': 'Неоновый Карантин',
     'track.neon_nexus.description': 'Огни карантина, прыжки с крыш и три больших поворота.',
+    // Trackside signs painted on canvas textures.
+    'sign.title': 'ЗОМБИ-СПРИНТ',
+    'sign.startFinish': 'СТАРТ · ФИНИШ',
+    'sign.restInSpeed': 'ПОКОЙ НАМ ТОЛЬКО СНИТСЯ',
+    'sign.cautionHorde': 'ОСТОРОЖНО: ОРДА',
+    'sign.hordeAhead': 'ВПЕРЕДИ ОРДА',
+    'sign.nextExit': 'СЛЕДУЮЩИЙ СЪЕЗД: НИКУДА',
+    'sign.quarantine': 'КАРАНТИН',
+    'sign.quarantineZone': 'ЗОНА КАРАНТИНА',
+    'sign.keepFrozen': 'ЗОМБИ НЕ РАЗМОРАЖИВАТЬ',
+    'sign.zoneClosed': 'ЗОНА ЗАКРЫТА',
+    'sign.zombieCrossing': 'ПЕРЕХОД ЗОМБИ',
   },
 };
 
@@ -269,8 +299,8 @@ const LOADING_TIPS: Record<Language, readonly string[]> = {
   en: [
     'Hold DRIFT (Space / Shift) through a corner and release for a mini-turbo. Longer drift = bigger boost.',
     'Tap the throttle just as the countdown hits 1 for a rocket start.',
-    'Hold BRAKE while using a power to throw it backwards.',
-    'Press Q to look behind you before dropping a slime trap.',
+    'Press {power} to use a power. Hold BRAKE with it to throw it backwards.',
+    'Press {lookBack} to look behind you before dropping a slime trap.',
     'Boost pads give a free speed burst. Line them up.',
     'Trailing zombies get the rarest powers. Keep racing!',
     'A star makes your zombie invincible and clears hazards.',
@@ -283,8 +313,8 @@ const LOADING_TIPS: Record<Language, readonly string[]> = {
   ru: [
     'Зажми дрифт (Space / Shift) в повороте и отпусти для мини-турбо.',
     'Нажми газ, когда отсчёт дойдёт до 1, чтобы мощно стартовать.',
-    'Зажми тормоз вместе с силой, чтобы бросить её назад.',
-    'Нажми Q и оглянись перед слизью-ловушкой.',
+    'Сила — клавиша {power}. Зажми с ней тормоз, чтобы бросить силу назад.',
+    'Нажми {lookBack} и оглянись перед слизью-ловушкой.',
     'Ускорители дают бесплатный рывок. Проезжай по ним точно.',
     'Отстающим зомби чаще достаются редкие силы. Не сдавайся!',
     'Звезда делает зомби неуязвимым и убирает помехи.',
@@ -343,6 +373,8 @@ function initialLanguage(): Language {
 }
 
 let language: Language = initialLanguage();
+/** Set once the player picks a language in this session, even when storage is denied. */
+let chosenByPlayer = false;
 
 export function getLanguage(): Language {
   return language;
@@ -350,16 +382,37 @@ export function getLanguage(): Language {
 
 export function setLanguage(next: Language): void {
   if (next !== 'ru' && next !== 'en') return;
+  chosenByPlayer = true;
+  applyLanguage(next, true);
+}
+
+function applyLanguage(next: Language, persist: boolean): void {
   if (language === next) return;
   language = next;
-  try {
-    localStorage.setItem(STORAGE_KEY, next);
-  } catch {
-    // Private browsing or an embedded platform may deny storage; the session still works.
+  if (persist) {
+    try {
+      localStorage.setItem(STORAGE_KEY, next);
+    } catch {
+      // Private browsing or an embedded platform may deny storage; the session still works.
+    }
   }
   document.documentElement.lang = next;
   for (const listener of Array.from(listeners)) listener(next);
 }
+
+/**
+ * The platform knows the player's language (Yandex environment.i18n.lang,
+ * CrazyGames systemInfo.locale) but reports it after the UI is already drawn.
+ * Apply it only while the player has not chosen a language, and do not store it
+ * as the player's choice. Unsupported languages fall back to English.
+ */
+(window as unknown as { __platformLang?: (code: string) => void }).__platformLang = (code: string): void => {
+  if (chosenByPlayer || safeStoredLanguage()) return;
+  const query = new URLSearchParams(location.search).get('lang');
+  if (query === 'ru' || query === 'en') return;
+  const c = String(code || '').slice(0, 2).toLowerCase();
+  applyLanguage(c === 'ru' ? 'ru' : 'en', false);
+};
 
 export function onLanguageChange(listener: (language: Language) => void): () => void {
   listeners.add(listener);
@@ -419,8 +472,9 @@ export function itemLabel(item: string): string {
   return keys[item] ? t(keys[item]) : '';
 }
 
-export function loadingTips(): readonly string[] {
-  return LOADING_TIPS[language];
+/** Tips with key placeholders ({power}, {lookBack}) filled from `values`. */
+export function loadingTips(values: Values = {}): readonly string[] {
+  return LOADING_TIPS[language].map((tip) => tip.replace(/{(w+)}/g, (_, name: string) => String(values[name] ?? `{${name}}`)));
 }
 
 export function zombieJoke(): string {

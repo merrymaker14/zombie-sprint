@@ -432,8 +432,17 @@ export interface IAudioEngine {
   setMasterVolume(v: number): void;
   setMuted(muted: boolean): void;
   readonly muted: boolean;
+  /** Other reasons for silence, independent of the player's mute and of each other. */
+  setSilenced?(reason: AudioSilenceReason, on: boolean): void;
+  /** Drop every engine voice and the crowd swell (race torn down). */
+  releaseVoices?(): void;
+  /** The context exists but is stopped by the system and must be resumed from a gesture. */
+  readonly needsResume?: boolean;
   dispose(): void;
 }
+
+/** platform: the host's own sound button; ad: an advert is playing; background: tab or app hidden. */
+export type AudioSilenceReason = 'platform' | 'ad' | 'background';
 
 // ---------------------------------------------------------------------------
 // FX

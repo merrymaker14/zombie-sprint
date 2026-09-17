@@ -1,4 +1,6 @@
 import {
+  adAudioMuted,
+  adBusy,
   adPlatform,
   adReady,
   adsGameReady,
@@ -7,6 +9,7 @@ import {
   gameplay,
   initAds,
   interstitial,
+  onAdAudio,
   onAdBusy,
   onAppFocus,
   onPlatformMute,
@@ -27,7 +30,7 @@ export function setup(isPlaying: () => boolean): void {
 
 export const ready = adsGameReady;
 export const setGameplay = gameplay;
-export { onAdBusy, onAppFocus, onPlatformMute, banner, adReady, adPlatform };
+export { onAdAudio, onAdBusy, onAppFocus, onPlatformMute, banner, adAudioMuted, adBusy, adReady, adPlatform };
 
 export function adAvailable(): boolean {
   const platform = adPlatform();

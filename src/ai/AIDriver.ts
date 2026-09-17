@@ -127,6 +127,7 @@ function installListeners(): void {
   listenersInstalled = true;
   events.on('race:countdown', ({ count }) => {
     if (count === 1) countdownOneSeen = true;
+    else if (count === 3) countdownOneSeen = false;
   });
   events.on('race:start', () => {
     countdownOneSeen = false;
@@ -176,6 +177,8 @@ export class AIDriver implements IAIDriver {
 
   constructor(kart: IKart, difficulty: Difficulty, personalitySeed: number) {
     installListeners();
+    // A race abandoned between "1" and GO never emits race:start; drivers are built before the next countdown.
+    countdownOneSeen = false;
     this.kart = kart;
     this.difficulty = difficulty;
     this.profile = PROFILES[difficulty];
@@ -305,7 +308,7 @@ export class AIDriver implements IAIDriver {
     let latTarget = clamp(offsetFrac + insideBias, -0.6, 0.6) * hw;
 
     // item boxes when empty-handed
-    if (s.item === 'none' && !s.itemRouletteActive) {
+    if (s.item === 'none' && !s.itemRouletteActive && !s.finished) {
       const boxes = items.getActiveBoxPositions();
       let bestAhead = BOX_SEEK_DISTANCE;
       let found = false;

@@ -38,6 +38,11 @@ const GOLDEN_MIN_SPACING = 0.25;
 const GREEN_SPEED = 34;
 const RED_SPEED = 30;
 const BLUE_SPEED = 45;
+/** A shell thrown forward leaves at least this much faster than its (possibly boosted) owner. */
+const SHELL_OWNER_MARGIN = 8;
+/** Conservative closing speed of a blue shell on a leader at full speed (sizes its lifetime). */
+const BLUE_CLOSING_SPEED = BLUE_SPEED - 24;
+const BLUE_LIFE_SLACK = 8;
 const SHELL_HEIGHT = 0.35;
 const GREEN_LIFE = 9;
 const RED_LIFE = 8;
@@ -71,6 +76,8 @@ interface Hazard extends HazardInfo {
   bodyMat: THREE.MeshStandardMaterial | null;
   /** Blue shell: centerline parameter of the flight. */
   flightT: number;
+  /** Blue shell: +1 flies with the race direction, -1 against it. */
+  flightDir: number;
   trailTimer: number;
   /** Excluded from getHazards() (blue shell high in the air). */
   hidden: boolean;
@@ -477,7 +484,7 @@ export class ItemManager implements IItemManager {
         }
       }
       rec.prevT = s.trackT;
-      if (!emptyHanded || s.isSpinning) continue;
+      if (!emptyHanded || s.isSpinning || s.finished) continue;
       for (const b of this.boxes) {
         if (!b.active || b.scale < 0.5) continue;
         const dx = s.position.x - b.world.x;
@@ -560,6 +567,7 @@ export class ItemManager implements IItemManager {
     if (rec.rouletteTimer <= 0) {
       rec.rouletteActive = false;
       const item = this.rollItem(s.place);
+      if (item === 'lightning') this.lastLightningTime = this.time;
       s.item = item;
       s.itemCount = item.startsWith('triple_') || item === 'golden_mushroom' ? 3 : 1;
       s.itemRouletteActive = false;
@@ -569,7 +577,7 @@ export class ItemManager implements IItemManager {
 
   private rollItem(place: number): ItemType {
     const row = ITEM_TABLE[clamp(Math.round(place), 1, ITEM_TABLE.length) - 1];
-    const allowLightning = this.time - this.lastLightningTime > LIGHTNING_COOLDOWN;
+    const allowLightning = this.time - this.lastLightningTime > LIGHTNING_COOLDOWN && !this.lightningHeld();
     let total = 0;
     for (const key in row) {
       const item = key as ItemType;
@@ -589,6 +597,27 @@ export class ItemManager implements IItemManager {
     return 'banana';
   }
 
+  /** A lightning already sitting in someone's slot counts against the cooldown too. */
+  private lightningHeld(): boolean {
+    for (const k of this.karts) {
+      if (!k.state.finished && baseItemType(k.state.item) === 'lightning') return true;
+    }
+    return false;
+  }
+
+  /** Karts that crossed the line drop out of the item fight (held items and roulettes are cleared). */
+  private disarmFinished(): void {
+    for (const rec of this.records) {
+      const s = rec.kart.state;
+      if (!s.finished) continue;
+      if (s.item === 'none' && !s.itemRouletteActive && !rec.rouletteActive) continue;
+      rec.rouletteActive = false;
+      s.itemRouletteActive = false;
+      s.item = 'none';
+      s.itemCount = 0;
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Using items
   // -------------------------------------------------------------------------
@@ -596,7 +625,7 @@ export class ItemManager implements IItemManager {
   requestUse(kart: IKart, aimBack: boolean): void {
     const s = kart.state;
     if (!this.track) return;
-    if (s.item === 'none' || s.itemCount <= 0 || s.itemRouletteActive || s.isSpinning || s.isFrozen) return;
+    if (s.item === 'none' || s.itemCount <= 0 || s.itemRouletteActive || s.isSpinning || s.isFrozen || s.finished) return;
     const rec = this.records.find((r) => r.kart === kart);
     if (rec && rec.rouletteActive) return;
     const item = s.item;
@@ -720,6 +749,7 @@ export class ItemManager implements IItemManager {
       wobblePhase: Math.random() * TAU,
       bodyMat,
       flightT: 0,
+      flightDir: 1,
       trailTimer: 0,
       hidden: false,
     };
@@ -775,6 +805,8 @@ export class ItemManager implements IItemManager {
       h.targetId = this.findRedTarget(kart);
       h.homing = h.targetId >= 0;
     }
+    // A boosted kart is faster than the base shell speed and would run into its own shell.
+    if (!aimBack) h.speed = Math.max(h.speed, Math.max(0, s.speed) + SHELL_OWNER_MARGIN);
     h.velocity.copy(_fwd).multiplyScalar(dir * h.speed);
     h.mesh.position.copy(h.position);
   }
@@ -800,9 +832,21 @@ export class ItemManager implements IItemManager {
     let best: IKart | null = null;
     for (const k of this.karts) {
       if (k === exclude) continue;
+      // Finished karts hold the top places but are out of the race.
+      if (k.state.finished) continue;
       if (!best || k.state.place < best.state.place) best = k;
     }
     return best;
+  }
+
+  /** Points a blue shell at its target and sizes its lifetime to the distance it has to fly. */
+  private aimBlueShell(h: Hazard, target: IKart, dir: number): void {
+    const len = Math.max(1, this.track ? this.track.length : 1);
+    const ts = target.state.trackT;
+    const remaining = dir > 0 ? wrap01(ts - h.flightT) : wrap01(h.flightT - ts);
+    h.targetId = target.state.id;
+    h.flightDir = dir;
+    h.life = h.age + (remaining * len) / BLUE_CLOSING_SPEED + BLUE_LIFE_SLACK;
   }
 
   private spawnBlueShell(kart: IKart): void {
@@ -815,7 +859,9 @@ export class ItemManager implements IItemManager {
     h.speed = BLUE_SPEED;
     h.targetId = target ? target.state.id : -1;
     h.homing = true;
-    h.life = 30;
+    // Fly the short way round: a leader more than half a lap ahead is closer behind (it is about to lap us),
+    // and a race leader's shell reaches the pursuer right behind instead of lapping the whole field.
+    if (target) this.aimBlueShell(h, target, trackDelta(h.flightT, target.state.trackT) >= 0 ? 1 : -1);
     h.velocity.copy(_fwd).multiplyScalar(BLUE_SPEED);
     h.mesh.position.copy(h.position);
     h.hidden = true;
@@ -860,7 +906,8 @@ export class ItemManager implements IItemManager {
     for (let i = this.hazards.length - 1; i >= 0; i--) {
       const h = this.hazards[i];
       h.age += dt;
-      if (h.age > h.life) {
+      // A blue shell never fizzles out: it explodes on its target when time runs out (see moveBlueShell).
+      if (h.age > h.life && h.kind !== 'blue_shell') {
         this.removeHazard(i);
         continue;
       }
@@ -910,6 +957,11 @@ export class ItemManager implements IItemManager {
     h.position.addScaledVector(h.velocity, dt);
     const q = track.query(h.position, h.hintT, _query);
     h.hintT = q.t;
+    // Over a barrier-free void edge the shell drops off instead of bouncing.
+    if (q.surface === 'void' && Math.abs(q.lateral) > q.halfWidth) {
+      this.destroyHazard(index, 'shellBreak', true);
+      return false;
+    }
     const limit = q.wallHalfWidth - 0.4;
     if (Math.abs(q.lateral) > limit) {
       if (h.bounces >= h.maxBounces) {
@@ -923,10 +975,6 @@ export class ItemManager implements IItemManager {
       h.bounces++;
       events.emit('item:shellBounce', { position: h.position.clone() });
       this.particles?.emit('hitSparks', h.position);
-    }
-    if (q.surface === 'void' && Math.abs(q.lateral) > q.halfWidth) {
-      this.destroyHazard(index, 'shellBreak', true);
-      return false;
     }
     h.position.y = q.groundY + SHELL_HEIGHT;
     return true;
@@ -963,7 +1011,8 @@ export class ItemManager implements IItemManager {
     const cross = _v2.x * _v1.z - _v2.z * _v1.x;
     const dot = clamp(_v2.dot(_v1), -1, 1);
     const angle = Math.atan2(cross, dot);
-    const maxTurn = (dist < 16 ? 6.5 : 3.5) * dt;
+    // turn rate scales with speed so a shell thrown from a boosted kart keeps the same turning radius
+    const maxTurn = (dist < 16 ? 6.5 : 3.5) * Math.max(1, h.speed / RED_SPEED) * dt;
     const turn = clamp(angle, -maxTurn, maxTurn);
     // rotate _v2 by 'turn' about Y (positive turn = toward _v1 given the cross convention above)
     const c = Math.cos(turn);
@@ -975,10 +1024,12 @@ export class ItemManager implements IItemManager {
 
   private moveBlueShell(h: Hazard, index: number, dt: number, track: ITrack): boolean {
     let target = this.kartById(h.targetId);
-    if (!target) {
+    if (!target || target.state.finished) {
       const owner = this.kartById(h.ownerId);
       target = owner ? this.findLeader(owner) : null;
       h.targetId = target ? target.state.id : -1;
+      // retarget mid-flight: take the short way to the new leader
+      if (target) this.aimBlueShell(h, target, trackDelta(h.flightT, target.state.trackT) >= 0 ? 1 : -1);
     }
     if (!target) {
       this.destroyHazard(index, 'shellBreak', true);
@@ -986,19 +1037,18 @@ export class ItemManager implements IItemManager {
     }
     const ts = target.state;
     const len = Math.max(1, track.length);
-    // forward distance along the track to the target (always in [0, 1) so a leader more
-    // than half a lap ahead is still "ahead", not "passed")
-    const remaining = wrap01(ts.trackT - h.flightT);
+    // distance along the track to the target in the chosen flight direction (in [0, 1))
+    const remaining = h.flightDir > 0 ? wrap01(ts.trackT - h.flightT) : wrap01(h.flightT - ts.trackT);
     const remainingM = remaining * len;
     _v1.subVectors(ts.position, h.position);
     const dist = _v1.length();
-    if (dist < 2.5 || (remainingM < 1.5 && h.age > 0.5)) {
+    if (dist < 2.5 || (remainingM < 1.5 && h.age > 0.5) || h.age > h.life) {
       h.position.copy(ts.position);
       this.explode(h.position, h.ownerId, 'blue_shell', 'blue_shell');
       this.removeHazard(index);
       return false;
     }
-    h.flightT = wrap01(h.flightT + (h.speed * dt) / len);
+    h.flightT = wrap01(h.flightT + (h.flightDir * h.speed * dt) / len);
     const s = track.sample(h.flightT, _sample);
     // lateral: drift toward the target's lateral offset when close
     const st = track.sample(ts.trackT, _sample2);
@@ -1123,12 +1173,21 @@ export class ItemManager implements IItemManager {
       const rr = KART_RADIUS + h.radius;
       for (const kart of this.karts) {
         const s = kart.state;
-        if (s.id === h.ownerId && h.age < OWNER_GRACE) continue;
-        if (s.isSpinning || s.finished) continue;
+        // A red shell homing on another kart never turns on its owner.
+        if (s.id === h.ownerId && (h.age < OWNER_GRACE || h.homing)) continue;
+        if (s.finished) continue;
         const dx = s.position.x - h.position.x;
         const dy = s.position.y + 0.45 - h.position.y;
         const dz = s.position.z - h.position.z;
         if (dx * dx + dy * dy + dz * dz > rr * rr) continue;
+        if (s.isSpinning) {
+          // A spinning kart can't be hit again, but it still stops a shell instead of letting it loop back.
+          if (h.kind === 'green_shell' || h.kind === 'red_shell') {
+            this.destroyHazard(i, 'shellBreak', true);
+            break;
+          }
+          continue;
+        }
         if (h.kind === 'bob_omb') {
           this.explode(h.position, h.ownerId, 'bob_omb', 'explosion');
           this.removeHazard(i);
@@ -1319,6 +1378,7 @@ export class ItemManager implements IItemManager {
   update(dt: number): void {
     if (!this.track) return;
     this.time += dt;
+    this.disarmFinished();
     this.updateBoxes(dt);
     for (const rec of this.records) this.updateRoulette(rec, dt);
     this.updateOrbits(dt);

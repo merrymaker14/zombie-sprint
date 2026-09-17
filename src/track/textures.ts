@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { TrackDefinition, TrackTheme } from '../core/types';
 import { fbm2, clamp01, seededRandom } from '../core/math';
-import { GAME_TITLE } from '../core/constants';
+import { t } from '../core/i18n';
 
 /** Length of one road texture tile along the track (metres). */
 export const ROAD_TILE_LENGTH = 8;
@@ -40,6 +40,578 @@ function finishTexture(canvas: HTMLCanvasElement, opts: { repeat?: boolean; srgb
   tex.generateMipmaps = true;
   tex.needsUpdate = true;
   return tex;
+}
+
+// -----------------------------------------------------------------------------------------------
+// Cartoon signage: pictograms and fitted display text (no text is baked in; callers pass t() strings)
+// -----------------------------------------------------------------------------------------------
+
+const DISPLAY_FONT = '"Arial Black", Impact, "Helvetica Neue", Arial, sans-serif';
+
+/** Set the largest display font (<= maxSize) whose rendered width fits maxWidth. Returns the size. */
+function fitFont(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxSize: number, weight = '900'): number {
+  let size = Math.max(8, Math.floor(maxSize));
+  ctx.font = `${weight} ${size}px ${DISPLAY_FONT}`;
+  const w = ctx.measureText(text).width;
+  if (w > maxWidth) {
+    size = Math.max(8, Math.floor((size * maxWidth) / w));
+    ctx.font = `${weight} ${size}px ${DISPLAY_FONT}`;
+  }
+  return size;
+}
+
+function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
+  const rad = Math.max(0, Math.min(r, w / 2, h / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + rad, y);
+  ctx.lineTo(x + w - rad, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rad);
+  ctx.lineTo(x + w, y + h - rad);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rad, y + h);
+  ctx.lineTo(x + rad, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rad);
+  ctx.lineTo(x, y + rad);
+  ctx.quadraticCurveTo(x, y, x + rad, y);
+  ctx.closePath();
+}
+
+function ellipsePath(ctx: CanvasRenderingContext2D, cx: number, cy: number, rx: number, ry: number): void {
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, Math.max(0.5, rx), Math.max(0.5, ry), 0, 0, Math.PI * 2);
+}
+
+/** Diagonal two-colour warning stripes clipped to a rectangle. */
+function hazardStripes(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, a: string, b: string, stripe: number): void {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+  ctx.fillStyle = b;
+  ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = a;
+  for (let sx = x - h; sx < x + w + h; sx += stripe * 2) {
+    ctx.beginPath();
+    ctx.moveTo(sx, y + h);
+    ctx.lineTo(sx + stripe, y + h);
+    ctx.lineTo(sx + stripe + h, y);
+    ctx.lineTo(sx + h, y);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/** Goo hanging from a top edge (rounded drops). Kid-friendly slime, not blood. */
+function slimeDrips(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, fill: string, seed: number): void {
+  const rng = seededRandom(seed);
+  ctx.fillStyle = fill;
+  const band = h * 0.12;
+  ctx.fillRect(x, y, w, band);
+  let px = x + rng() * h * 0.2;
+  while (px < x + w - h * 0.08) {
+    const dw = h * (0.07 + rng() * 0.08);
+    const dl = h * (0.1 + rng() * rng() * 0.45);
+    const r = dw / 2;
+    ctx.beginPath();
+    ctx.moveTo(px - r * 0.5, y + band - 1);
+    ctx.quadraticCurveTo(px, y + band, px, y + band + dl * 0.4);
+    ctx.lineTo(px, y + band + dl);
+    ctx.arc(px + r, y + band + dl, r, Math.PI, 0, true);
+    ctx.lineTo(px + dw, y + band + dl * 0.4);
+    ctx.quadraticCurveTo(px + dw, y + band, px + dw + r * 0.5, y + band - 1);
+    ctx.closePath();
+    ctx.fill();
+    px += dw + h * (0.06 + rng() * 0.28);
+  }
+}
+
+/** Icicles hanging from a top edge. */
+function icicles(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, seed: number): void {
+  const rng = seededRandom(seed);
+  ctx.fillStyle = 'rgba(236,248,255,0.95)';
+  ctx.fillRect(x, y, w, h * 0.08);
+  let px = x;
+  while (px < x + w - 4) {
+    const dw = h * (0.06 + rng() * 0.07);
+    const dl = h * (0.12 + rng() * 0.3);
+    ctx.beginPath();
+    ctx.moveTo(px, y + h * 0.08);
+    ctx.lineTo(px + dw / 2, y + h * 0.08 + dl);
+    ctx.lineTo(px + dw, y + h * 0.08);
+    ctx.closePath();
+    ctx.fill();
+    px += dw + rng() * h * 0.08;
+  }
+}
+
+/** Cute cartoon skull: big round eye sockets with a shine, button nose, block teeth. */
+function drawSkull(ctx: CanvasRenderingContext2D, cx: number, cy: number, s: number, bone: string, dark: string): void {
+  const r = s * 0.34;
+  const lw = Math.max(1.5, s * 0.04);
+  ctx.lineJoin = 'round';
+  ctx.fillStyle = bone;
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = lw;
+  // jaw first so the cranium outline overlaps it
+  roundRectPath(ctx, cx - r * 0.6, cy + r * 0.35, r * 1.2, r * 0.78, r * 0.28);
+  ctx.fill();
+  ctx.stroke();
+  ellipsePath(ctx, cx, cy - r * 0.12, r, r * 0.92);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = bone;
+  ctx.fillRect(cx - r * 0.55, cy + r * 0.3, r * 1.1, r * 0.25);
+  // teeth
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = lw * 0.8;
+  for (let k = -1; k <= 1; k++) {
+    ctx.beginPath();
+    ctx.moveTo(cx + k * r * 0.26, cy + r * 0.72);
+    ctx.lineTo(cx + k * r * 0.26, cy + r * 1.08);
+    ctx.stroke();
+  }
+  // eyes
+  ctx.fillStyle = dark;
+  ellipsePath(ctx, cx - r * 0.4, cy - r * 0.05, r * 0.29, r * 0.33);
+  ctx.fill();
+  ellipsePath(ctx, cx + r * 0.4, cy - r * 0.05, r * 0.29, r * 0.33);
+  ctx.fill();
+  ctx.fillStyle = bone;
+  ellipsePath(ctx, cx - r * 0.32, cy - r * 0.15, r * 0.09, r * 0.09);
+  ctx.fill();
+  ellipsePath(ctx, cx + r * 0.48, cy - r * 0.15, r * 0.09, r * 0.09);
+  ctx.fill();
+  // nose
+  ctx.fillStyle = dark;
+  ctx.beginPath();
+  ctx.moveTo(cx - r * 0.1, cy + r * 0.3);
+  ctx.lineTo(cx + r * 0.1, cy + r * 0.3);
+  ctx.lineTo(cx, cy + r * 0.44);
+  ctx.closePath();
+  ctx.fill();
+}
+
+/** Friendly zombie mascot head: messy hair, forehead stitches, odd-sized eyes, crooked grin. */
+function drawZombieHead(ctx: CanvasRenderingContext2D, cx: number, cy: number, s: number, skin: string, dark: string): void {
+  const r = s * 0.38;
+  const lw = Math.max(1.5, s * 0.04);
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = lw;
+  // hair tufts behind the head
+  ctx.fillStyle = dark;
+  ctx.beginPath();
+  ctx.moveTo(cx - r * 0.85, cy - r * 0.35);
+  ctx.lineTo(cx - r * 0.7, cy - r * 1.2);
+  ctx.lineTo(cx - r * 0.35, cy - r * 0.8);
+  ctx.lineTo(cx - r * 0.05, cy - r * 1.3);
+  ctx.lineTo(cx + r * 0.2, cy - r * 0.85);
+  ctx.lineTo(cx + r * 0.6, cy - r * 1.15);
+  ctx.lineTo(cx + r * 0.85, cy - r * 0.35);
+  ctx.closePath();
+  ctx.fill();
+  // ears
+  ctx.fillStyle = skin;
+  ellipsePath(ctx, cx - r * 0.98, cy + r * 0.05, r * 0.2, r * 0.26);
+  ctx.fill();
+  ctx.stroke();
+  ellipsePath(ctx, cx + r * 0.98, cy + r * 0.05, r * 0.2, r * 0.26);
+  ctx.fill();
+  ctx.stroke();
+  // head
+  ellipsePath(ctx, cx, cy, r, r * 0.96);
+  ctx.fill();
+  ctx.stroke();
+  // stitches across the forehead
+  ctx.lineWidth = lw * 0.7;
+  ctx.beginPath();
+  ctx.moveTo(cx + r * 0.05, cy - r * 0.62);
+  ctx.lineTo(cx + r * 0.62, cy - r * 0.42);
+  ctx.stroke();
+  for (let k = 0; k < 3; k++) {
+    const px = cx + r * (0.16 + k * 0.18);
+    const py = cy - r * (0.58 - k * 0.064);
+    ctx.beginPath();
+    ctx.moveTo(px - r * 0.03, py - r * 0.1);
+    ctx.lineTo(px + r * 0.03, py + r * 0.1);
+    ctx.stroke();
+  }
+  // tired under-eye shadows
+  ctx.fillStyle = 'rgba(40,30,60,0.28)';
+  ellipsePath(ctx, cx - r * 0.38, cy + r * 0.02, r * 0.3, r * 0.3);
+  ctx.fill();
+  ellipsePath(ctx, cx + r * 0.36, cy + r * 0.02, r * 0.22, r * 0.22);
+  ctx.fill();
+  // eyes: one big, one small, looking in different directions
+  ctx.lineWidth = lw * 0.8;
+  ctx.fillStyle = '#fbfbf2';
+  ellipsePath(ctx, cx - r * 0.36, cy - r * 0.1, r * 0.27, r * 0.28);
+  ctx.fill();
+  ctx.stroke();
+  ellipsePath(ctx, cx + r * 0.36, cy - r * 0.06, r * 0.17, r * 0.17);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = dark;
+  ellipsePath(ctx, cx - r * 0.3, cy - r * 0.06, r * 0.1, r * 0.1);
+  ctx.fill();
+  ellipsePath(ctx, cx + r * 0.33, cy - r * 0.1, r * 0.07, r * 0.07);
+  ctx.fill();
+  // crooked grin with two teeth
+  ctx.lineWidth = lw;
+  ctx.beginPath();
+  ctx.moveTo(cx - r * 0.42, cy + r * 0.42);
+  ctx.quadraticCurveTo(cx, cy + r * 0.66, cx + r * 0.46, cy + r * 0.34);
+  ctx.stroke();
+  ctx.fillStyle = '#fbfbf2';
+  ctx.fillRect(cx - r * 0.18, cy + r * 0.47, r * 0.14, r * 0.14);
+  ctx.strokeRect(cx - r * 0.18, cy + r * 0.47, r * 0.14, r * 0.14);
+  ctx.fillRect(cx + r * 0.1, cy + r * 0.44, r * 0.12, r * 0.18);
+  ctx.strokeRect(cx + r * 0.1, cy + r * 0.44, r * 0.12, r * 0.18);
+}
+
+/** Cartoon zombie hand rising out of the ground (sleeve cuff, splayed fingers). baseY is the bottom. */
+function drawZombieHand(ctx: CanvasRenderingContext2D, cx: number, baseY: number, s: number, skin: string, sleeve: string, dark: string, mound: string | null): void {
+  const lw = Math.max(1.5, s * 0.035);
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = lw;
+  const finger = (x: number, y: number, w: number, h: number, a: number): void => {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(a);
+    roundRectPath(ctx, -w / 2, -h, w, h + w * 0.6, w / 2);
+    ctx.fillStyle = skin;
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  };
+  const palmW = s * 0.3;
+  const palmTop = baseY - s * 0.62;
+  // fingers behind the palm
+  const fw = s * 0.075;
+  finger(cx - palmW * 0.36, palmTop + s * 0.04, fw, s * 0.2, -0.22);
+  finger(cx - palmW * 0.12, palmTop + s * 0.02, fw, s * 0.26, -0.06);
+  finger(cx + palmW * 0.12, palmTop + s * 0.02, fw, s * 0.24, 0.08);
+  finger(cx + palmW * 0.36, palmTop + s * 0.04, fw, s * 0.18, 0.26);
+  finger(cx - palmW * 0.52, palmTop + s * 0.2, fw, s * 0.15, -0.9);
+  // palm
+  roundRectPath(ctx, cx - palmW / 2, palmTop, palmW, s * 0.3, s * 0.08);
+  ctx.fillStyle = skin;
+  ctx.fill();
+  ctx.stroke();
+  // ragged sleeve
+  const sw = s * 0.36;
+  const sTop = baseY - s * 0.36;
+  ctx.beginPath();
+  ctx.moveTo(cx - sw / 2, baseY);
+  ctx.lineTo(cx - sw / 2, sTop);
+  const teeth = 5;
+  for (let k = 0; k < teeth; k++) {
+    ctx.lineTo(cx - sw / 2 + ((k + 0.5) / teeth) * sw, sTop + (k % 2 === 0 ? s * 0.07 : s * 0.02));
+    ctx.lineTo(cx - sw / 2 + ((k + 1) / teeth) * sw, sTop);
+  }
+  ctx.lineTo(cx + sw / 2, baseY);
+  ctx.closePath();
+  ctx.fillStyle = sleeve;
+  ctx.fill();
+  ctx.stroke();
+  if (mound) {
+    ctx.fillStyle = mound;
+    ctx.beginPath();
+    ctx.ellipse(cx, baseY, s * 0.46, s * 0.12, 0, Math.PI, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+}
+
+/** Rounded tombstone with an engraved cross and a grass tuft. */
+function drawTombstone(ctx: CanvasRenderingContext2D, cx: number, baseY: number, s: number, stone: string, dark: string): void {
+  const w = s * 0.5;
+  const h = s * 0.72;
+  const lw = Math.max(1.5, s * 0.035);
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(cx - w / 2, baseY);
+  ctx.lineTo(cx - w / 2, baseY - h + w / 2);
+  ctx.arc(cx, baseY - h + w / 2, w / 2, Math.PI, 0);
+  ctx.lineTo(cx + w / 2, baseY);
+  ctx.closePath();
+  ctx.fillStyle = stone;
+  ctx.fill();
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = lw;
+  ctx.stroke();
+  ctx.fillStyle = dark;
+  ctx.fillRect(cx - s * 0.03, baseY - h + s * 0.14, s * 0.06, s * 0.3);
+  ctx.fillRect(cx - s * 0.11, baseY - h + s * 0.22, s * 0.22, s * 0.06);
+  // a little crack
+  ctx.lineWidth = lw * 0.6;
+  ctx.beginPath();
+  ctx.moveTo(cx + w * 0.5, baseY - h * 0.55);
+  ctx.lineTo(cx + w * 0.3, baseY - h * 0.45);
+  ctx.lineTo(cx + w * 0.36, baseY - h * 0.35);
+  ctx.stroke();
+  ctx.fillStyle = '#4f8f34';
+  ctx.beginPath();
+  ctx.moveTo(cx - w * 0.75, baseY);
+  for (let k = 0; k <= 8; k++) ctx.lineTo(cx - w * 0.75 + (k / 8) * w * 1.5, baseY - (k % 2 === 0 ? 0 : s * 0.09));
+  ctx.closePath();
+  ctx.fill();
+}
+
+/** Biohazard trefoil, drawn on a scratch canvas so the cut-outs stay transparent. */
+function drawBiohazard(ctx: CanvasRenderingContext2D, cx: number, cy: number, s: number, fill: string): void {
+  const S = Math.max(8, Math.ceil(s));
+  const scratch = makeCanvas(S, S);
+  const c = scratch.ctx;
+  const u = S / 2;
+  const m = u;
+  c.fillStyle = fill;
+  c.strokeStyle = fill;
+  for (let k = 0; k < 3; k++) {
+    const a = -Math.PI / 2 + (k * Math.PI * 2) / 3;
+    c.beginPath();
+    c.arc(m + Math.cos(a) * u * 0.34, m + Math.sin(a) * u * 0.34, u * 0.5, 0, Math.PI * 2);
+    c.fill();
+  }
+  c.globalCompositeOperation = 'destination-out';
+  for (let k = 0; k < 3; k++) {
+    const a = -Math.PI / 2 + (k * Math.PI * 2) / 3;
+    c.beginPath();
+    c.arc(m + Math.cos(a) * u * 0.5, m + Math.sin(a) * u * 0.5, u * 0.36, 0, Math.PI * 2);
+    c.fill();
+  }
+  c.beginPath();
+  c.arc(m, m, u * 0.14, 0, Math.PI * 2);
+  c.fill();
+  c.globalCompositeOperation = 'source-over';
+  c.lineWidth = u * 0.09;
+  c.beginPath();
+  c.arc(m, m, u * 0.36, 0, Math.PI * 2);
+  c.stroke();
+  c.globalCompositeOperation = 'destination-out';
+  c.lineWidth = u * 0.07;
+  for (let k = 0; k < 3; k++) {
+    const a = -Math.PI / 2 + (k * Math.PI * 2) / 3 + Math.PI / 3;
+    c.beginPath();
+    c.moveTo(m + Math.cos(a) * u * 0.28, m + Math.sin(a) * u * 0.28);
+    c.lineTo(m + Math.cos(a) * u * 0.44, m + Math.sin(a) * u * 0.44);
+    c.stroke();
+  }
+  c.globalCompositeOperation = 'source-over';
+  ctx.drawImage(scratch.canvas, cx - S / 2, cy - S / 2);
+}
+
+/** Road-sign style shambling zombie: arms out in front, one knee bent. baseY is the feet line. */
+function drawWalker(ctx: CanvasRenderingContext2D, cx: number, baseY: number, s: number, fill: string): void {
+  ctx.strokeStyle = fill;
+  ctx.fillStyle = fill;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  const L = (w: number, pts: [number, number][]): void => {
+    ctx.lineWidth = s * w;
+    ctx.beginPath();
+    ctx.moveTo(cx + pts[0][0] * s, baseY - pts[0][1] * s);
+    for (let k = 1; k < pts.length; k++) ctx.lineTo(cx + pts[k][0] * s, baseY - pts[k][1] * s);
+    ctx.stroke();
+  };
+  ellipsePath(ctx, cx + 0.1 * s, baseY - 0.84 * s, 0.1 * s, 0.1 * s);
+  ctx.fill();
+  L(0.15, [[0.02, 0.68], [-0.05, 0.42]]);
+  L(0.065, [[0.03, 0.64], [0.33, 0.62]]);
+  L(0.065, [[0.0, 0.58], [0.31, 0.54]]);
+  L(0.085, [[-0.05, 0.4], [0.08, 0.22], [0.1, 0.03]]);
+  L(0.085, [[-0.06, 0.4], [-0.2, 0.2], [-0.3, 0.05]]);
+}
+
+/** A little zombie head frozen inside an ice cube. */
+function drawFrozenZombie(ctx: CanvasRenderingContext2D, cx: number, cy: number, s: number, skin: string, dark: string): void {
+  drawZombieHead(ctx, cx, cy + s * 0.04, s * 0.78, skin, dark);
+  roundRectPath(ctx, cx - s * 0.43, cy - s * 0.43, s * 0.86, s * 0.86, s * 0.1);
+  ctx.fillStyle = 'rgba(170,225,255,0.45)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(235,250,255,0.95)';
+  ctx.lineWidth = Math.max(1.5, s * 0.04);
+  ctx.stroke();
+  ctx.lineWidth = Math.max(1, s * 0.03);
+  ctx.beginPath();
+  ctx.moveTo(cx - s * 0.3, cy - s * 0.18);
+  ctx.lineTo(cx - s * 0.16, cy - s * 0.32);
+  ctx.moveTo(cx - s * 0.3, cy - s * 0.04);
+  ctx.lineTo(cx - s * 0.02, cy - s * 0.32);
+  ctx.stroke();
+}
+
+/** Big highway arrow bending off to nowhere. */
+function drawExitArrow(ctx: CanvasRenderingContext2D, cx: number, cy: number, s: number, fill: string): void {
+  ctx.fillStyle = fill;
+  ctx.strokeStyle = fill;
+  ctx.lineWidth = s * 0.14;
+  ctx.lineCap = 'butt';
+  ctx.beginPath();
+  ctx.moveTo(cx - s * 0.1, cy + s * 0.42);
+  ctx.lineTo(cx - s * 0.1, cy + s * 0.05);
+  ctx.quadraticCurveTo(cx - s * 0.1, cy - s * 0.15, cx + s * 0.12, cy - s * 0.2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(cx + s * 0.38, cy - s * 0.24);
+  ctx.lineTo(cx + s * 0.06, cy - s * 0.44);
+  ctx.lineTo(cx + s * 0.1, cy + s * 0.02);
+  ctx.closePath();
+  ctx.fill();
+}
+
+export type SignIcon = 'skull' | 'zombie' | 'hand' | 'tombstone' | 'biohazard' | 'walker' | 'frozen' | 'arrow';
+export type SignStyle = 'slime' | 'hazard' | 'highway' | 'plain' | 'hologram';
+
+/** One trackside sign: already-translated text, colours and the pictogram drawn at both ends. */
+export interface SignSpec {
+  text: string;
+  bg: number;
+  fg: number;
+  accent: number;
+  icon: SignIcon;
+  style: SignStyle;
+}
+
+const INK = '#1b1522';
+
+function drawIcon(ctx: CanvasRenderingContext2D, icon: SignIcon, cx: number, cy: number, s: number, fg: string, accent: string): void {
+  switch (icon) {
+    case 'skull':
+      drawSkull(ctx, cx, cy, s, '#f3ecd6', INK);
+      break;
+    case 'zombie':
+      drawZombieHead(ctx, cx, cy + s * 0.05, s, '#8fcf5f', INK);
+      break;
+    case 'hand':
+      drawZombieHand(ctx, cx, cy + s * 0.46, s, '#8fcf5f', accent, INK, '#5a3d2b');
+      break;
+    case 'tombstone':
+      drawTombstone(ctx, cx, cy + s * 0.42, s, '#a9a6b8', INK);
+      break;
+    case 'biohazard':
+      drawBiohazard(ctx, cx, cy, s * 0.92, fg);
+      break;
+    case 'walker':
+      drawWalker(ctx, cx - s * 0.04, cy + s * 0.45, s * 0.92, fg);
+      break;
+    case 'frozen':
+      drawFrozenZombie(ctx, cx, cy, s, '#8fcf5f', INK);
+      break;
+    case 'arrow':
+      drawExitArrow(ctx, cx, cy, s, fg);
+      break;
+  }
+}
+
+/** Paint one sign into the rectangle (x, y, w, h) of a canvas. */
+function drawSign(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, spec: SignSpec, glow: boolean, seed: number): void {
+  const bg = css(spec.bg);
+  const fg = css(spec.fg);
+  const accent = css(spec.accent);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+  ctx.fillStyle = bg;
+  ctx.fillRect(x, y, w, h);
+  let inset = h * 0.12;
+  if (spec.style === 'hazard') {
+    const band = h * 1.25;
+    hazardStripes(ctx, x, y, band, h, accent, INK, h * 0.22);
+    hazardStripes(ctx, x + w - band, y, band, h, accent, INK, h * 0.22);
+    inset = band + h * 0.08;
+  } else if (spec.style === 'slime') {
+    slimeDrips(ctx, x, y, w, h, accent, seed);
+  } else if (spec.style === 'hologram') {
+    ctx.globalAlpha = 0.16;
+    ctx.fillStyle = accent;
+    for (let yy = y; yy < y + h; yy += Math.max(3, h * 0.05)) ctx.fillRect(x, yy, w, Math.max(1, h * 0.018));
+    ctx.globalAlpha = 1;
+  }
+  if (spec.style === 'highway') {
+    ctx.strokeStyle = fg;
+    ctx.lineWidth = Math.max(2, h * 0.045);
+    roundRectPath(ctx, x + h * 0.08, y + h * 0.08, w - h * 0.16, h * 0.84, h * 0.14);
+    ctx.stroke();
+  } else {
+    ctx.strokeStyle = spec.style === 'hologram' ? accent : css(spec.fg, 0.75);
+    ctx.lineWidth = Math.max(2, h * 0.05);
+    if (glow) {
+      ctx.shadowColor = accent;
+      ctx.shadowBlur = h * 0.25;
+    }
+    ctx.strokeRect(x + h * 0.04, y + h * 0.04, w - h * 0.08, h * 0.92);
+    ctx.shadowBlur = 0;
+  }
+  // text first (to know its width), pictograms hug it; wide boards get a second pair near the ends
+  const iconS = h * 0.84;
+  const iconCy = y + h * 0.52;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const size = fitFont(ctx, spec.text, w - 2 * inset - iconS * 2.6, h * 0.66);
+  const tw = ctx.measureText(spec.text).width;
+  const gap = iconS * 0.75;
+  const leftCx = Math.max(x + inset + iconS * 0.55, x + w / 2 - tw / 2 - gap);
+  const rightCx = Math.min(x + w - inset - iconS * 0.55, x + w / 2 + tw / 2 + gap);
+  if (glow) {
+    ctx.shadowColor = fg;
+    ctx.shadowBlur = h * 0.2;
+  }
+  drawIcon(ctx, spec.icon, leftCx, iconCy, iconS, fg, accent);
+  drawIcon(ctx, spec.icon, rightCx, iconCy, iconS, fg, accent);
+  const outerL = x + inset + iconS * 0.6;
+  if (leftCx - outerL > iconS * 1.8) {
+    drawIcon(ctx, spec.icon, outerL, iconCy, iconS, fg, accent);
+    drawIcon(ctx, spec.icon, x + w - (outerL - x), iconCy, iconS, fg, accent);
+  }
+  ctx.shadowBlur = 0;
+  const ty = y + h * 0.54;
+  if (glow) {
+    ctx.shadowColor = fg;
+    ctx.shadowBlur = h * 0.3;
+  }
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = Math.max(2, size * 0.14);
+  ctx.strokeStyle = spec.style === 'highway' ? 'rgba(0,0,0,0.25)' : 'rgba(10,6,16,0.85)';
+  ctx.strokeText(spec.text, x + w / 2, ty);
+  ctx.fillStyle = fg;
+  ctx.fillText(spec.text, x + w / 2, ty);
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+
+export interface SignAtlas {
+  texture: THREE.CanvasTexture;
+  /** Per sign: v range of its row (u always spans 0..1). */
+  rows: { v0: number; v1: number }[];
+}
+
+/**
+ * All trackside boards of one track in a single texture (one material, few draw calls).
+ * Each row keeps the aspect of the board it is mapped onto, so text is never stretched.
+ */
+export function makeSignAtlas(signs: { spec: SignSpec; aspect: number }[], glow: boolean): SignAtlas {
+  const W = 2048;
+  const gutter = 12;
+  const heights = signs.map((s) => Math.round(THREE.MathUtils.clamp(W / Math.max(1, s.aspect), 64, 320)));
+  const H = heights.reduce((a, b) => a + b + gutter, gutter);
+  const { canvas, ctx } = makeCanvas(W, H);
+  const rows: { v0: number; v1: number }[] = [];
+  let y = gutter;
+  signs.forEach((s, i) => {
+    const h = heights[i];
+    // gutter bleed in the sign's own background so mipmaps do not pick up neighbours
+    ctx.fillStyle = css(s.spec.bg);
+    ctx.fillRect(0, y - gutter / 2, W, h + gutter);
+    drawSign(ctx, 0, y, W, h, s.spec, glow, 101 + i * 17);
+    rows.push({ v0: 1 - (y + h - 0.5) / H, v1: 1 - (y + 0.5) / H });
+    y += h + gutter;
+  });
+  return { texture: finishTexture(canvas, { repeat: false }), rows };
 }
 
 /** Fill the canvas with a base colour modulated by tiling fbm noise. */
@@ -330,48 +902,94 @@ export function makeCheckerTexture(cols = 12, rows = 2): THREE.CanvasTexture {
   return finishTexture(canvas, { repeat: false });
 }
 
-/** Big banner with the game title for the start gantry. */
+/** Per-theme look of the gantry title board and the start/finish plaque. */
+function gantryLook(theme: TrackTheme, accent: number): { board: string; board2: string; text: string; trim: string; skin: string; sleeve: string } {
+  switch (theme) {
+    case 'desert':
+      return { board: '#6b3420', board2: '#4e2616', text: '#ffc21a', trim: '#2a1a14', skin: '#9cc46a', sleeve: '#7a6a5a' };
+    case 'snow':
+      return { board: '#243646', board2: '#1a2733', text: '#ffd21a', trim: '#0f1820', skin: '#9fd0a0', sleeve: '#c8452f' };
+    case 'neon':
+      return { board: '#120a22', board2: '#0b0616', text: css(accent), trim: '#7dff4a', skin: '#7dff4a', sleeve: '#3a2a66' };
+    default:
+      return { board: '#3b2750', board2: '#2c1d3d', text: '#a6ef5a', trim: '#1b1226', skin: '#8fcf5f', sleeve: '#6b4f8a' };
+  }
+}
+
+/**
+ * Title board for the top of the start gantry: the translated game title on a themed plank board,
+ * with two cartoon zombie hands reaching up from behind it. Transparent outside the silhouette
+ * (use alphaTest).
+ */
 export function makeBannerTexture(theme: TrackTheme, accent: number): THREE.CanvasTexture {
   const W = 1024;
   const H = 256;
   const { canvas, ctx } = makeCanvas(W, H);
-  const grad = ctx.createLinearGradient(0, 0, W, 0);
+  ctx.clearRect(0, 0, W, H);
+  const look = gantryLook(theme, accent);
+  const title = t('sign.title');
+  const bx = 40;
+  const by = 78;
+  const bw = W - 80;
+  const bh = H - by - 10;
+  // hands behind the board
+  drawZombieHand(ctx, 150, by + 96, 176, look.skin, look.sleeve, INK, null);
+  drawZombieHand(ctx, W - 150, by + 96, 176, look.skin, look.sleeve, INK, null);
+  // board with planks
+  ctx.save();
+  roundRectPath(ctx, bx, by, bw, bh, 18);
+  ctx.clip();
+  ctx.fillStyle = look.board;
+  ctx.fillRect(bx, by, bw, bh);
+  ctx.fillStyle = look.board2;
+  for (let k = 1; k < 3; k++) ctx.fillRect(bx, by + (k * bh) / 3 - 3, bw, 6);
+  const rng = seededRandom(theme.length * 31 + 7);
+  ctx.globalAlpha = 0.18;
+  for (let i = 0; i < 26; i++) ctx.fillRect(bx + rng() * bw, by + rng() * bh, 30 + rng() * 90, 3);
+  ctx.globalAlpha = 1;
+  if (theme === 'snow') icicles(ctx, bx, by, bw, bh, 12);
+  else if (theme === 'desert') hazardStripes(ctx, bx, by, bw, 18, '#ffc21a', INK, 22);
+  else slimeDrips(ctx, bx, by, bw, bh * 0.9, theme === 'neon' ? '#7dff4a' : '#86d04a', 44);
+  ctx.restore();
+  ctx.lineWidth = 10;
+  ctx.strokeStyle = look.trim;
   if (theme === 'neon') {
-    grad.addColorStop(0, '#12061f');
-    grad.addColorStop(1, '#1a0b33');
-  } else {
-    grad.addColorStop(0, '#c81e2b');
-    grad.addColorStop(0.5, '#e63946');
-    grad.addColorStop(1, '#c81e2b');
+    ctx.shadowColor = look.trim;
+    ctx.shadowBlur = 24;
   }
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, W, H);
-  // checker border
-  const cell = 16;
-  for (let x = 0; x < W / cell; x++) {
-    for (let y = 0; y < 2; y++) {
-      ctx.fillStyle = (x + y) % 2 === 0 ? '#ffffff' : '#111111';
-      ctx.fillRect(x * cell, y * cell, cell, cell);
-      ctx.fillRect(x * cell, H - (y + 1) * cell, cell, cell);
-    }
+  roundRectPath(ctx, bx + 5, by + 5, bw - 10, bh - 10, 16);
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  // bolts
+  ctx.fillStyle = theme === 'neon' ? '#7dff4a' : '#c9c2b0';
+  for (const px of [bx + 26, bx + bw - 26]) for (const py of [by + 26, by + bh - 26]) {
+    ellipsePath(ctx, px, py, 7, 7);
+    ctx.fill();
   }
+  // title
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = 'italic 900 96px "Arial Black", Impact, "Helvetica Neue", Arial, sans-serif';
-  // Fit the title inside the banner with margins regardless of the platform font.
-  const measured = ctx.measureText(GAME_TITLE).width;
-  if (measured > W * 0.86) ctx.font = `italic 900 ${Math.floor((96 * W * 0.86) / measured)}px "Arial Black", Impact, "Helvetica Neue", Arial, sans-serif`;
-  ctx.lineWidth = 12;
-  ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-  ctx.strokeText(GAME_TITLE, W / 2, H / 2 + 6);
-  ctx.fillStyle = theme === 'neon' ? css(accent) : '#fff7d6';
-  ctx.fillText(GAME_TITLE, W / 2, H / 2 + 6);
+  const size = fitFont(ctx, title, bw - 150, 116, 'italic 900');
+  const ty = by + bh / 2 + 10;
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = Math.max(6, size * 0.16);
+  ctx.strokeStyle = 'rgba(10,6,16,0.92)';
+  ctx.strokeText(title, W / 2, ty);
+  ctx.fillStyle = look.text;
   if (theme === 'neon') {
-    ctx.shadowColor = css(accent);
-    ctx.shadowBlur = 40;
-    ctx.fillText(GAME_TITLE, W / 2, H / 2 + 6);
-    ctx.shadowBlur = 0;
+    ctx.shadowColor = look.text;
+    ctx.shadowBlur = 30;
   }
+  ctx.fillText(title, W / 2, ty);
+  ctx.shadowBlur = 0;
+  // highlight on the letters
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, W, ty - size * 0.12);
+  ctx.clip();
+  ctx.fillStyle = 'rgba(255,255,255,0.22)';
+  ctx.fillText(title, W / 2, ty);
+  ctx.restore();
   return finishTexture(canvas, { repeat: false });
 }
 
@@ -502,80 +1120,68 @@ export function makeSkidTexture(): THREE.CanvasTexture {
   return finishTexture(canvas, { repeat: false });
 }
 
-/** Fictional sponsor banner (rounded panel, bold display text). */
+/** Plain trackside board with caller-supplied (already translated) text and skull pictograms. */
 export function makeSponsorTexture(text: string, bg: number, fg: number, accent: number, glow = false): THREE.CanvasTexture {
   const W = 1024;
   const H = 256;
   const { canvas, ctx } = makeCanvas(W, H);
-  ctx.fillStyle = css(bg);
-  ctx.fillRect(0, 0, W, H);
-  // diagonal accent stripes on the left and right
-  ctx.fillStyle = css(accent);
-  for (const x0 of [0, W - 140]) {
-    for (let i = 0; i < 3; i++) {
-      ctx.beginPath();
-      ctx.moveTo(x0 + i * 46, 0);
-      ctx.lineTo(x0 + i * 46 + 22, 0);
-      ctx.lineTo(x0 + i * 46 + 22 + 60, H);
-      ctx.lineTo(x0 + i * 46 + 60, H);
-      ctx.closePath();
-      ctx.fill();
-    }
-  }
-  ctx.strokeStyle = css(fg, 0.8);
-  ctx.lineWidth = 8;
-  ctx.strokeRect(6, 6, W - 12, H - 12);
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  let size = 128;
-  ctx.font = `italic 900 ${size}px "Arial Black", Impact, "Helvetica Neue", Arial, sans-serif`;
-  const measured = ctx.measureText(text).width;
-  if (measured > W * 0.66) {
-    size = Math.floor((size * W * 0.66) / measured);
-    ctx.font = `italic 900 ${size}px "Arial Black", Impact, "Helvetica Neue", Arial, sans-serif`;
-  }
-  if (glow) {
-    ctx.shadowColor = css(fg);
-    ctx.shadowBlur = 36;
-  }
-  ctx.lineWidth = 10;
-  ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-  ctx.strokeText(text, W / 2, H / 2 + 4);
-  ctx.fillStyle = css(fg);
-  ctx.fillText(text, W / 2, H / 2 + 4);
-  ctx.shadowBlur = 0;
+  drawSign(ctx, 0, 0, W, H, { text, bg, fg, accent, icon: 'skull', style: glow ? 'hologram' : 'plain' }, glow, 5);
   return finishTexture(canvas, { repeat: false });
 }
 
-/** Checkered start/finish banner with the words START and FINISH. */
-export function makeStartBannerTexture(theme: TrackTheme, accent: number): THREE.CanvasTexture {
-  const W = 1024;
-  const H = 192;
+/**
+ * Checkered start/finish band with a themed plaque carrying the translated START · FINISH text.
+ * `aspect` is width / height of the plane the texture is mapped onto, so cells stay square and
+ * the lettering is not stretched.
+ */
+export function makeStartBannerTexture(theme: TrackTheme, accent: number, aspect = 1024 / 192): THREE.CanvasTexture {
+  const W = 2048;
+  const H = Math.round(THREE.MathUtils.clamp(W / Math.max(1, aspect), 96, 512));
   const { canvas, ctx } = makeCanvas(W, H);
-  const cell = 24;
-  for (let y = 0; y < H / cell; y++) {
-    for (let x = 0; x < W / cell; x++) {
+  const rows = 4;
+  const cell = H / rows;
+  const cols = Math.ceil(W / cell);
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
       ctx.fillStyle = (x + y) % 2 === 0 ? '#f4f4f4' : '#141416';
-      ctx.fillRect(x * cell, y * cell, cell, cell);
+      ctx.fillRect(Math.floor(x * cell), Math.floor(y * cell), Math.ceil(cell), Math.ceil(cell));
     }
   }
-  // central plaque
-  const pw = W * 0.5;
-  const ph = H * 0.62;
-  ctx.fillStyle = theme === 'neon' ? '#140826' : '#c81e2b';
-  ctx.fillRect(W / 2 - pw / 2, H / 2 - ph / 2, pw, ph);
-  ctx.strokeStyle = css(accent);
-  ctx.lineWidth = 6;
-  ctx.strokeRect(W / 2 - pw / 2 + 4, H / 2 - ph / 2 + 4, pw - 8, ph - 8);
+  const look = gantryLook(theme, accent);
+  const text = t('sign.startFinish');
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = '900 84px "Arial Black", Impact, "Helvetica Neue", Arial, sans-serif';
-  ctx.fillStyle = theme === 'neon' ? css(accent) : '#fff7d6';
+  const iconS = H * 0.74;
+  const size = fitFont(ctx, text, W * 0.62 - iconS * 2.4, H * 0.62);
+  const tw = ctx.measureText(text).width;
+  const pw = tw + iconS * 2.6 + H * 0.3;
+  const ph = H * 0.86;
+  const px = W / 2 - pw / 2;
+  const py = H / 2 - ph / 2;
+  roundRectPath(ctx, px, py, pw, ph, H * 0.16);
+  ctx.fillStyle = look.board;
+  ctx.fill();
+  ctx.lineWidth = Math.max(3, H * 0.05);
+  ctx.strokeStyle = theme === 'neon' ? css(accent) : look.text;
   if (theme === 'neon') {
     ctx.shadowColor = css(accent);
-    ctx.shadowBlur = 24;
+    ctx.shadowBlur = H * 0.18;
   }
-  ctx.fillText('START  ·  FINISH', W / 2, H / 2 + 4);
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  const skullBone = theme === 'neon' ? '#e9fff0' : '#f3ecd6';
+  drawSkull(ctx, px + H * 0.2 + iconS * 0.6, H / 2 + H * 0.02, iconS, skullBone, INK);
+  drawSkull(ctx, px + pw - H * 0.2 - iconS * 0.6, H / 2 + H * 0.02, iconS, skullBone, INK);
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = Math.max(3, size * 0.14);
+  ctx.strokeStyle = 'rgba(10,6,16,0.9)';
+  ctx.strokeText(text, W / 2, H / 2 + H * 0.03);
+  ctx.fillStyle = look.text;
+  if (theme === 'neon') {
+    ctx.shadowColor = look.text;
+    ctx.shadowBlur = H * 0.2;
+  }
+  ctx.fillText(text, W / 2, H / 2 + H * 0.03);
   ctx.shadowBlur = 0;
   return finishTexture(canvas, { repeat: false });
 }
@@ -635,38 +1241,62 @@ export function makeWindowTexture(seed: number): { map: THREE.CanvasTexture; emi
   return { map: finishTexture(a.canvas), emissive: finishTexture(e.canvas) };
 }
 
-/** Holographic billboard designs for the neon city. */
+/** Holographic quarantine warnings for the neon city (translated text + pictograms, no brands). */
 export function makeBillboardTexture(variant: number): THREE.CanvasTexture {
   const W = 512;
   const H = 256;
   const { canvas, ctx } = makeCanvas(W, H);
-  const themes = [
-    { bg: '#12042a', a: '#ff2fd6', b: '#00e5ff', text: 'TURBO' },
-    { bg: '#031a2a', a: '#00e5ff', b: '#ffe83a', text: 'NEXUS' },
-    { bg: '#1a0410', a: '#ff5a5a', b: '#ffffff', text: 'RUSH' },
+  const designs: { bg: string; a: string; b: string; key: string; icon: SignIcon }[] = [
+    { bg: '#1c0507', a: '#ff4040', b: '#ffd21a', key: 'sign.quarantine', icon: 'biohazard' },
+    { bg: '#03160b', a: '#7dff4a', b: '#00e5ff', key: 'sign.cautionHorde', icon: 'walker' },
+    { bg: '#1a0418', a: '#ff2fd6', b: '#ffd21a', key: 'sign.zoneClosed', icon: 'skull' },
   ];
-  const t = themes[variant % themes.length];
-  ctx.fillStyle = t.bg;
+  const d = designs[((variant % designs.length) + designs.length) % designs.length];
+  ctx.fillStyle = d.bg;
   ctx.fillRect(0, 0, W, H);
-  ctx.strokeStyle = t.b;
-  ctx.lineWidth = 10;
-  ctx.strokeRect(10, 10, W - 20, H - 20);
+  // hazard bands top and bottom
+  hazardStripes(ctx, 0, 0, W, 26, d.b, '#0a0a0a', 20);
+  hazardStripes(ctx, 0, H - 26, W, 26, d.b, '#0a0a0a', 20);
   // scanlines
-  ctx.globalAlpha = 0.2;
-  ctx.fillStyle = t.b;
-  for (let y = 0; y < H; y += 6) ctx.fillRect(0, y, W, 2);
+  ctx.globalAlpha = 0.18;
+  ctx.fillStyle = d.a;
+  for (let y = 30; y < H - 30; y += 6) ctx.fillRect(0, y, W, 2);
   ctx.globalAlpha = 1;
+  ctx.strokeStyle = d.a;
+  ctx.lineWidth = 6;
+  ctx.shadowColor = d.a;
+  ctx.shadowBlur = 18;
+  ctx.strokeRect(8, 32, W - 16, H - 64);
+  // pictogram on the left
+  const iconS = 132;
+  const icx = 22 + iconS / 2;
+  const icy = H / 2;
+  ctx.shadowColor = d.b;
+  ctx.shadowBlur = 16;
+  drawIcon(ctx, d.icon, icx, icy, iconS, d.b, d.a);
+  ctx.shadowBlur = 0;
+  // text, split into two lines after a colon
+  const text = t(d.key);
+  const colon = text.indexOf(': ');
+  const lines = colon > 0 ? [text.slice(0, colon + 1), text.slice(colon + 2)] : [text];
+  const left = 22 + iconS + 12;
+  const tw = W - left - 24;
+  const cx = left + tw / 2;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = '900 150px "Arial Black", Impact, Arial, sans-serif';
-  ctx.shadowColor = t.a;
-  ctx.shadowBlur = 30;
-  ctx.fillStyle = t.a;
-  ctx.fillText(t.text, W / 2, H / 2);
+  ctx.shadowColor = d.a;
+  ctx.shadowBlur = 22;
+  ctx.fillStyle = d.a;
+  if (lines.length === 1) {
+    fitFont(ctx, lines[0], tw, 96);
+    ctx.fillText(lines[0], cx, H / 2 + 4);
+  } else {
+    const size = Math.min(fitFont(ctx, lines[0], tw, 62), fitFont(ctx, lines[1], tw, 62));
+    ctx.font = `900 ${size}px ${DISPLAY_FONT}`;
+    ctx.fillText(lines[0], cx, H / 2 - size * 0.5);
+    ctx.fillText(lines[1], cx, H / 2 + size * 0.62);
+  }
   ctx.shadowBlur = 0;
-  ctx.fillStyle = t.b;
-  ctx.font = '700 30px Arial, sans-serif';
-  ctx.fillText(variant % 2 === 0 ? 'KART  •  RUSH  •  NIGHT' : 'DRIFT  •  BOOST  •  WIN', W / 2, H - 40);
   return finishTexture(canvas, { repeat: false });
 }
 

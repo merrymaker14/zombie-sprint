@@ -11,7 +11,8 @@ const KEY_BRAKE = ['KeyS', 'ArrowDown'];
 const KEY_LEFT = ['KeyA', 'ArrowLeft'];
 const KEY_RIGHT = ['KeyD', 'ArrowRight'];
 const KEY_DRIFT = ['Space', 'ShiftLeft', 'ShiftRight'];
-const KEY_ITEM = ['KeyE', 'ControlLeft', 'ControlRight', 'Enter', 'NumpadEnter'];
+// No Ctrl: Ctrl+W / Ctrl+Shift+W are reserved by the browser and close the tab mid-race.
+const KEY_ITEM = ['KeyE', 'Enter', 'NumpadEnter'];
 const KEY_LOOKBACK = ['KeyQ'];
 const KEY_PAUSE = ['Escape', 'KeyP'];
 const KEY_BACK = ['Escape', 'KeyP', 'Backspace'];
@@ -28,6 +29,8 @@ const GAME_KEYS = new Set<string>([
   ...KEY_LOOKBACK,
   ...KEY_PAUSE,
   ...KEY_CONFIRM,
+  // Tab would move focus out of the platform iframe and pause the race.
+  'Tab',
 ]);
 
 // Standard gamepad mapping.
