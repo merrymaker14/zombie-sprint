@@ -75,22 +75,40 @@ async function openGame(browser, lang, width, height) {
       if (p.focusY !== null) b.focus.y = p.focusY;
       original(dt, cam);
     };
-    window.__record = (ms) => new Promise((resolve, reject) => {
-      const canvas = g.renderer.domElement;
-      const rec = new MediaRecorder(canvas.captureStream(30), { mimeType: 'video/webm;codecs=vp8', videoBitsPerSecond: 14e6 });
-      const parts = [];
-      rec.ondataavailable = (e) => { if (e.data.size) parts.push(e.data); };
-      rec.onerror = (e) => reject(e.error);
-      rec.onstop = () => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result).split(',')[1]);
-        reader.readAsDataURL(new Blob(parts, { type: 'video/webm' }));
-      };
-      rec.start(250);
-      setTimeout(() => rec.stop(), ms);
-    });
+    // Step capture: the real-time loop is paused and the game advances by exactly 1/30 s per
+    // frame. Real-time recording dropped frames and let the menu camera jump with uneven dt.
+    window.__stepFrames = (count) => {
+      const DT = 1 / 30;
+      const frames = [];
+      let goAt = -1;
+      cancelAnimationFrame(g.rafId);
+      g.rafId = 0;
+      try {
+        for (let i = 0; i < count; i++) {
+          g.frame(DT, g.input.update());
+          if (goAt < 0 && g.currentState === 'racing') goAt = i;
+          frames.push(g.renderer.domElement.toDataURL('image/jpeg', 0.93).split(',')[1]);
+        }
+      } finally {
+        g.lastTime = -1;
+        g.rafId = requestAnimationFrame(g.loop);
+      }
+      return { frames, goAt };
+    };
   });
   return { page, errors };
+}
+
+/** Step-captures `seconds` of the game into an exact 30 fps clip; returns the frame the race started at. */
+async function stepClip(page, file, seconds) {
+  const dir = `${file}.frames`;
+  fs.rmSync(dir, { recursive: true, force: true });
+  ensure(dir);
+  const { frames, goAt } = await page.evaluate((n) => window.__stepFrames(n), Math.round(seconds * FPS));
+  frames.forEach((b64, i) => fs.writeFileSync(path.join(dir, `${String(i).padStart(4, '0')}.jpg`), Buffer.from(b64, 'base64')));
+  ff(['-framerate', String(FPS), '-i', path.join(dir, '%04d.jpg'), '-c:v', 'libx264', '-preset', 'fast', '-crf', '14', '-pix_fmt', 'yuv420p', file]);
+  fs.rmSync(dir, { recursive: true, force: true });
+  return goAt;
 }
 
 function save(file, base64) {
@@ -199,32 +217,22 @@ async function capture(browser, lang) {
     const { page, errors } = await openGame(browser, lang, 1280, 720);
     await page.evaluate(() => { document.getElementById('ui').style.visibility = 'hidden'; });
     await lineup(page, true);
-    save(path.join(dir, 'clip-lineup.webm'), await page.evaluate(() => window.__record(6500)));
+    await stepClip(page, path.join(dir, 'clip-lineup.mp4'), 6.5);
     await lineup(page, false);
     for (const id of HEROES) {
       await hero(page, id);
-      save(path.join(dir, `clip-hero-${id}.webm`), await page.evaluate(() => window.__record(1900)));
+      await stepClip(page, path.join(dir, `clip-hero-${id}.mp4`), 1.9);
     }
     for (const id of TRACKS) {
       await startRace(page, id, id === 'neon_nexus' ? 'pixel' : id === 'frostbite_falls' ? 'kai' : 'bram');
       if (id === TRACKS[0]) {
-        // Record through the countdown and note when the race starts inside the clip.
-        const res = await page.evaluate(async () => {
-          const t0 = performance.now();
-          let goAt = -1;
-          const watch = setInterval(() => {
-            if (goAt < 0 && window.__zombieSprint.currentState === 'racing') goAt = (performance.now() - t0) / 1000;
-          }, 16);
-          const data = await window.__record(7000);
-          clearInterval(watch);
-          return { data, goAt };
-        });
-        save(path.join(dir, 'clip-start.webm'), res.data);
-        log.start.goAt = res.goAt;
+        // Through the countdown; the race start is known to the frame.
+        const goFrame = await stepClip(page, path.join(dir, 'clip-start.mp4'), 7);
+        log.start.goAt = goFrame >= 0 ? goFrame / FPS : -1;
       }
       await page.waitForFunction(() => window.__zombieSprint.currentState === 'racing', null, { timeout: 30000 });
       await sleep(2500);
-      save(path.join(dir, `clip-race-${id}.webm`), await page.evaluate(() => window.__record(8000)));
+      await stepClip(page, path.join(dir, `clip-race-${id}.mp4`), 8);
       await toMenu(page);
     }
     if (lang === LANGS[0]) {
@@ -271,7 +279,8 @@ ff(['-i', path.join(RAW, 'music-race.webm'), '-af', 'silenceremove=start_periods
 
 function shot(src, from, beats, out, text = null) {
   const dur = beats * BEAT;
-  const push = `scale=w='2*trunc(1280*(1+0.04*t/${dur.toFixed(4)})/2)':h='2*trunc(720*(1+0.04*t/${dur.toFixed(4)})/2)':eval=frame,crop=1280:720,setsar=1`;
+  // Push-in computed at 4x and scaled down, so zoom and centre steps are sub-pixel instead of 1-2 px jumps.
+  const push = `scale=w='2*trunc(5120*(1+0.04*t/${dur.toFixed(4)})/2)':h='2*trunc(2880*(1+0.04*t/${dur.toFixed(4)})/2)':eval=frame:flags=bicubic,crop=5120:2880,scale=1280:720:flags=lanczos,setsar=1`;
   const title = text
     ? `,drawbox=x=0:y=ih*0.62:w=iw:h=ih*0.3:color=0x07091a@0.5:t=fill,drawtext=fontfile='${FONT}':text='ZOMBIE SPRINT':fontcolor=white:fontsize=92:x=(w-text_w)/2:y=h*0.66:shadowcolor=0x000000@0.8:shadowx=4:shadowy=4,drawtext=fontfile='${FONT}':text='${text}':fontcolor=0xb8ff7a:fontsize=40:x=(w-text_w)/2:y=h*0.8:shadowcolor=0x000000@0.8:shadowx=3:shadowy=3`
     : '';
@@ -312,12 +321,12 @@ function cut(lang, name, plan) {
 
 const plans = (goAt) => {
   const start = Math.max(0, goAt - 2 * BEAT);
-  const heroes = (n, beats) => HEROES.slice(0, n).map((id) => ({ clip: `clip-hero-${id}.webm`, from: 0.25, beats }));
-  const races = (beats) => TRACKS.map((id) => ({ clip: `clip-race-${id}.webm`, from: 0.4, beats }));
+  const heroes = (n, beats) => HEROES.slice(0, n).map((id) => ({ clip: `clip-hero-${id}.mp4`, from: 0.25, beats }));
+  const races = (beats) => TRACKS.map((id) => ({ clip: `clip-race-${id}.mp4`, from: 0.4, beats }));
   // Real gameplay (start + races) must fill at least 70% of a store video (Yandex rule): 27s = 50/68, 19s = 36/48.
   return {
-    '27s': [{ clip: 'clip-lineup.webm', from: 0.3, beats: 6, title: true }, ...heroes(3, 2), { clip: 'clip-start.webm', from: start, beats: 6 }, ...races(11), { clip: 'clip-lineup.webm', from: 2.2, beats: 6, title: true }],
-    '19s': [{ clip: 'clip-lineup.webm', from: 0.3, beats: 4, title: true }, ...heroes(2, 2), { clip: 'clip-start.webm', from: start, beats: 4 }, ...races(8), { clip: 'clip-lineup.webm', from: 2.2, beats: 4, title: true }],
+    '27s': [{ clip: 'clip-lineup.mp4', from: 0.3, beats: 6, title: true }, ...heroes(3, 2), { clip: 'clip-start.mp4', from: start, beats: 6 }, ...races(11), { clip: 'clip-lineup.mp4', from: 2.2, beats: 6, title: true }],
+    '19s': [{ clip: 'clip-lineup.mp4', from: 0.3, beats: 4, title: true }, ...heroes(2, 2), { clip: 'clip-start.mp4', from: start, beats: 4 }, ...races(8), { clip: 'clip-lineup.mp4', from: 2.2, beats: 4, title: true }],
   };
 };
 
