@@ -2,6 +2,9 @@
  * Bootstrap: WebGL2 detection, global error handling, then hand over to Game.
  */
 import { GAME_TITLE } from './core/constants';
+
+/** Longest wait for a platform SDK before the menu opens anyway. */
+const PLATFORM_SDK_WAIT_MS = 10_000;
 import { Game } from './game/Game';
 import { el } from './ui/dom';
 import { showToast } from './ui/toast';
@@ -88,8 +91,32 @@ function boot(): void {
     ads.onAppFocus((focused: boolean) => game.setAppFocus(focused));
     ads.onPlatformMute((muted: boolean) => game.setPlatformMute(muted));
     events.on('race:allFinished', () => { void ads.atRaceFinish(); });
-    game.start();
-    requestAnimationFrame(() => ads.ready());
+    // The menu must not become usable before the platform can hear "ready": Yandex 1.19 rejects a
+    // LoadingAPI.ready() that arrives after the menu, and the SDK initializes asynchronously.
+    // Wait for it behind a splash (capped, so an ad blocker cannot keep the game closed), then
+    // open the menu and report ready right after its first frame.
+    const begin = (): void => {
+      game.start();
+      // The splash leaves and ready is reported together, right after the menu's first frame
+      // (which compiles the menu shaders and can take well over one display frame).
+      requestAnimationFrame(() => {
+        splash?.remove();
+        ads.ready();
+      });
+    };
+    const splash = ads.platformSdkExpected() ? el('div', 'boot-splash', undefined, app) : null;
+    if (splash) {
+      el('div', 'boot-splash-title', GAME_TITLE, splash);
+      el('div', 'boot-splash-dots', undefined, splash);
+      const waitStart = performance.now();
+      const waitForSdk = (): void => {
+        if (ads.adReady() || performance.now() - waitStart > PLATFORM_SDK_WAIT_MS) begin();
+        else setTimeout(waitForSdk, 30);
+      };
+      waitForSdk();
+    } else {
+      begin();
+    }
     let lastBannerState = '';
     const syncBanner = (): void => {
       // Hidden under an advert and asked again after it; the key also changes once the SDK is up,

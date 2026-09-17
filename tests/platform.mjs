@@ -182,6 +182,17 @@ console.log('--- Яндекс Игры ---');
   await context.close();
 }
 {
+  /* Требование Яндекса 1.19: LoadingAPI.ready ровно тогда, когда меню стало доступно, в том числе
+     при медленном SDK. Отказ модерации: меню открывалось сразу, а ready ждал YaGames.init(). */
+  const { page, errors, context } = await openGame(browser, BASE, { platform: 'yandex', cfg: { lang: 'en', initDelay: 1500 } });
+  await page.waitForFunction(() => (window.__sdkLog || []).some((e) => e.n === 'LoadingAPI.ready'), null, { timeout: 20000 });
+  const r = await page.evaluate(() => ({ ready: window.__sdkLog.find((e) => e.n === 'LoadingAPI.ready'), menu: window.__firstInteractive }));
+  ok('медленный SDK: меню не открывается раньше LoadingAPI.ready', r.menu !== null && r.ready.t >= r.menu - 20 && r.ready.t - r.menu <= 120 && r.ready.s === 'title',
+    `меню ${Math.round(r.menu)} мс, ready ${r.ready.t} мс (${r.ready.s})`);
+  allErrors.push(...errors.map((e) => 'yandex-slow: ' + e));
+  await context.close();
+}
+{
   /* Выбор игрока сильнее подсказки площадки. */
   const { page, errors, context } = await openGame(browser, BASE, { platform: 'yandex', cfg: { lang: 'en' }, storage: { zs_language: 'ru' } });
   await page.waitForFunction(() => (window.__sdkLog || []).some((e) => e.n === 'YaGames.init'), null, { timeout: 20000 });

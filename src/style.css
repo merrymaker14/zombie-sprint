@@ -2489,3 +2489,43 @@ html.touch-mode .hud-speed {
 @media (prefers-reduced-motion: reduce) {
   .rotate-icon { animation: none; }
 }
+
+/* ------------------------------------------------------------------ boot splash */
+/* Shown only while a platform SDK initializes, before the menu opens. */
+.boot-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  background: radial-gradient(circle at 50% 40%, #1c1640 0%, #0b0b1a 70%);
+  color: #fff;
+}
+
+.boot-splash-title {
+  font-size: clamp(28px, 6vw, 64px);
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-shadow: 0 4px 18px rgba(140, 255, 90, 0.35);
+}
+
+.boot-splash-dots {
+  width: 72px;
+  height: 14px;
+  background:
+    radial-gradient(circle, #b8ff7a 45%, transparent 50%) 0 50% / 24px 14px repeat-x;
+  animation: boot-dots 0.9s steps(3) infinite;
+  opacity: 0.85;
+}
+
+@keyframes boot-dots {
+  from { clip-path: inset(0 66% 0 0); }
+  to { clip-path: inset(0 -34% 0 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .boot-splash-dots { animation: none; }
+}

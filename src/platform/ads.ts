@@ -32,6 +32,11 @@ export const ready = adsGameReady;
 export const setGameplay = gameplay;
 export { onAdAudio, onAdBusy, onAppFocus, onPlatformMute, banner, adAudioMuted, adBusy, adReady, adPlatform };
 
+/** A platform SDK is expected to come up (built for a platform and running on its host). */
+export function platformSdkExpected(): boolean {
+  return adPlatform() !== 'none' && !offPlatform();
+}
+
 export function adAvailable(): boolean {
   const platform = adPlatform();
   if (platform === 'none' || offPlatform()) return true;

@@ -85,7 +85,8 @@ const YANDEX_SDK = `
     }
   };
   window.__yaFire = function (n) { L(n); (on[n] || []).forEach(function (f) { f(); }); };
-  window.YaGames = { init: function () { L('YaGames.init'); return Promise.resolve(ysdk); } };
+  // initDelay: a real SDK answers YaGames.init() only after a round trip to the host page.
+  window.YaGames = { init: function () { L('YaGames.init'); return new Promise(function (res) { setTimeout(function () { res(ysdk); }, cfg.initDelay || 0); }); } };
 })();`;
 
 const GD_SDK = `
@@ -134,6 +135,14 @@ export async function openGame(browser, base, { platform = null, cfg = {}, stora
       sessionStorage.setItem('__seeded', '1');
       for (const [k, v] of Object.entries(storage)) localStorage.setItem(k, v);
     }
+    // First moment the menu is on screen and usable (checked every frame from page start).
+    window.__firstInteractive = null;
+    const watchMenu = () => {
+      const g = window.__zombieSprint;
+      if (g && g.currentState === 'title' && !document.querySelector('.boot-splash')) window.__firstInteractive = performance.now();
+      else requestAnimationFrame(watchMenu);
+    };
+    requestAnimationFrame(watchMenu);
     const realNow = Date.now.bind(Date);
     window.__skew = 0;
     Date.now = () => realNow() + window.__skew;
