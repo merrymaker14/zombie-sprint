@@ -226,6 +226,76 @@ console.log('--- GameDistribution ---');
   await context.close();
 }
 
+/* =================== Выход из гонки и игровое поле ===================
+ *
+ * Оба пункта — из чужих отказов, полученных соседними играми:
+ *   · правый клик и выделение: Яндекс (п. 1.6.2.7) проверяет их кликом по
+ *     ЛЮБОМУ месту игры, а не по холсту — меню и HUD лежат DOM-слоем поверх;
+ *   · выход в главное меню из гонки на МЫШИНОМ экране: кнопка паузы жила
+ *     только в тач-раскладке, и на десктопе оставался один ESC — модерация ВК
+ *     (п. 4.2.10) считает это отсутствием выхода.
+ */
+console.log('\n--- игровое поле и выход из гонки ---');
+{
+  const { page, errors, context } = await openGame(browser, BASE);
+  await waitState(page, 'title');
+
+  await page.evaluate(() => {
+    window.__leak = [];
+    for (const type of ['contextmenu', 'selectstart', 'dragstart']) {
+      document.addEventListener(type, (e) => { if (!e.defaultPrevented) window.__leak.push(type); });
+    }
+  });
+  for (const sel of ['#app', 'canvas', '#ui']) {
+    await page.click(sel, { button: 'right', force: true }).catch(() => {});
+  }
+  const leaks = await page.evaluate(() => window.__leak);
+  ok('правый клик по игре не доходит до браузера', leaks.length === 0, leaks.join(', '));
+
+  await startRace(page);
+  await waitState(page, 'racing');
+  await sleep(600);
+  const btn = await page.evaluate(() => {
+    const b = document.querySelector('.tc-pause');
+    if (!b) return null;
+    const r = b.getBoundingClientRect();
+    const cs = getComputedStyle(b);
+    const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return {
+      w: Math.round(r.width), h: Math.round(r.height), display: cs.display,
+      label: (b.textContent || '').replace(/\s+/g, ' ').trim(),
+      own: !!top && (top === b || b.contains(top)),
+    };
+  });
+  ok('в гонке на мышином экране видна кнопка паузы', !!btn && btn.display !== 'none' && btn.w >= 44 && btn.h >= 44,
+    JSON.stringify(btn));
+  /* Подпись словом: голые две полосы за кнопку не считают. */
+  ok('у кнопки паузы есть подпись', !!btn && btn.label.replace(/[^\p{L}]/gu, '').length >= 4, btn && btn.label);
+  ok('нажатие по кнопке паузы ничем не перекрыто', !!btn && btn.own);
+
+  await page.click('.tc-pause', { force: true }).catch(() => {});
+  await sleep(500);
+  ok('кнопка паузы мышью ставит игру на паузу', (await state(page)) === 'paused', 'state ' + (await state(page)));
+
+  const quit = await page.evaluate(() => {
+    const b = [...document.querySelectorAll('.screen.pause .btn, .screen.pause button')]
+      .find((n) => (n.dataset.i18n || '') === 'pause.quit');
+    if (!b) return null;
+    const r = b.getBoundingClientRect();
+    return { text: (b.textContent || '').trim(), w: Math.round(r.width), h: Math.round(r.height) };
+  });
+  ok('в паузе есть кнопка выхода в главное меню', !!quit && quit.h >= 36, JSON.stringify(quit));
+  await page.evaluate(() => {
+    [...document.querySelectorAll('.screen.pause .btn, .screen.pause button')]
+      .find((n) => (n.dataset.i18n || '') === 'pause.quit')?.click();
+  });
+  await sleep(900);
+  ok('выход из паузы возвращает в главное меню', (await state(page)) === 'title', 'state ' + (await state(page)));
+
+  allErrors.push(...errors.map((e) => 'exit: ' + e));
+  await context.close();
+}
+
 await browser.close();
 ok('без ошибок в консоли', allErrors.length === 0, allErrors.slice(0, 5).join(' | '));
 if (failures()) { console.error(`\nплощадки: ${failures()} проверок не прошли`); process.exit(1); }

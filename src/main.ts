@@ -38,6 +38,18 @@ function boot(): void {
   const app = document.getElementById('app') ?? el('div', '', undefined, document.body);
   app.id = 'app';
 
+  // The play area is not a document: no browser context menu, no text selection,
+  // no image dragging anywhere in it. Yandex checks this with a right click on
+  // whatever is on screen — menus and HUD are DOM on top of the canvas, so a
+  // handler on the canvas alone leaves them open (that is how a sister game got
+  // rejected). Form fields are left alone; the game has none today.
+  for (const type of ['contextmenu', 'selectstart', 'dragstart'] as const) {
+    document.addEventListener(type, (event) => {
+      if ((event.target as HTMLElement | null)?.closest('input, textarea')) return;
+      event.preventDefault();
+    });
+  }
+
   if (!hasWebGL2()) {
     showFatal(
       app,

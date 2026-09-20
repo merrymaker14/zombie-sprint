@@ -157,7 +157,10 @@ export class InputManager {
     s.lookBack = this.anyHeld(KEY_LOOKBACK) || buttons[PAD_Y];
 
     s.useItem = this.anyPressed(KEY_ITEM) || padEdge(PAD_X) || padEdge(PAD_LB) || (touchOn && tf.itemPressed);
-    s.pause = this.anyPressed(KEY_PAUSE) || padEdge(PAD_START) || (touchOn && tf.pausePressed);
+    // Pause is the one touch button that also counts with a mouse: on desktop
+    // the on-screen button is the only visible way out of a race, and platform
+    // rules require one (VK 4.2.10). The rest stay behind touch mode.
+    s.pause = this.anyPressed(KEY_PAUSE) || padEdge(PAD_START) || (tf !== null && tf.pausePressed);
     s.confirm = this.anyPressed(KEY_CONFIRM) || padEdge(PAD_A);
     s.back = this.anyPressed(KEY_BACK) || padEdge(PAD_B);
     s.menuUp =

@@ -123,8 +123,11 @@ export class TouchControls {
     const node = el('div', `tc-btn ${className}`, undefined, this.root);
     node.setAttribute('role', 'button');
     if (glyph) el('span', 'tc-glyph', glyph, node);
+    // Pause carries a written label as well as the glyph: two bars alone read as
+    // decoration, and a platform reviewer looking for the way out of a race has
+    // to find it at a glance (VK 3.4.2). Other buttons keep glyph plus label too.
     if (role === 'pause') this.labels.push({ node, key: labelKey });
-    else this.label(el('span', 'tc-label', '', node), labelKey);
+    this.label(el('span', 'tc-label', '', node), labelKey);
     const set = this.held[role];
     const release = (e: PointerEvent): void => {
       set.delete(e.pointerId);

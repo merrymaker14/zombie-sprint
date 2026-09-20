@@ -91,7 +91,7 @@ const TEXT: Record<Language, Record<string, string>> = {
     'pause.title': 'PAUSED',
     'pause.resume': 'RESUME',
     'pause.restart': 'RESTART RUN',
-    'pause.quit': 'QUIT TO HORDE',
+    'pause.quit': 'MAIN MENU',
     'pause.hint': 'ESC / P  resume   ·   ↑↓  navigate   ·   ENTER  select',
     'results.kicker': 'ZOMBIE RUN COMPLETE',
     'results.champion': 'HORDE CHAMPION!',
@@ -235,7 +235,7 @@ const TEXT: Record<Language, Record<string, string>> = {
     'pause.title': 'ПАУЗА',
     'pause.resume': 'ПРОДОЛЖИТЬ',
     'pause.restart': 'НАЧАТЬ ЗАНОВО',
-    'pause.quit': 'ВЫЙТИ К ОРДЕ',
+    'pause.quit': 'В ГЛАВНОЕ МЕНЮ',
     'pause.hint': 'ESC / P  продолжить   ·   ↑↓  выбор   ·   ENTER  подтвердить',
     'results.kicker': 'ЗАЕЗД ЗОМБИ ЗАВЕРШЁН',
     'results.champion': 'ЧЕМПИОН ОРДЫ!',
@@ -289,7 +289,10 @@ const TEXT: Record<Language, Record<string, string>> = {
     'track.neon_nexus.name': 'Неоновый Карантин',
     'track.neon_nexus.description': 'Огни карантина, прыжки с крыш и три больших поворота.',
     // Trackside signs painted on canvas textures.
-    'sign.title': 'ЗОМБИ-СПРИНТ',
+    /* Название игры не переводим: в карточке магазина и на обложке оно
+       одно — Zombie Sprint, а Яндекс требует, чтобы в самой игре было то же
+       (п. 5.1.3). Русский вариант на арке давал второе написание. */
+    'sign.title': 'ZOMBIE SPRINT',
     'sign.startFinish': 'СТАРТ · ФИНИШ',
     'sign.restInSpeed': 'ПОКОЙ НАМ ТОЛЬКО СНИТСЯ',
     'sign.cautionHorde': 'ОСТОРОЖНО: ОРДА',

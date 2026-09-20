@@ -1,8 +1,9 @@
 /* Бутстрап площадки VK Games (ВКонтакте + Одноклассники).
  *
- * Подключается сборкой в <head> ДО модуля игры и решает ровно две задачи:
+ * Подключается сборкой в <head> ДО модуля игры и решает ровно три задачи:
  *   1. поднимает VK Bridge (VKWebAppInit), чтобы драйвер площадки в игре нашёл готовый мост;
- *   2. поднимает облачные сейвы в localStorage — игра читает их синхронно и об облаке не знает.
+ *   2. поднимает облачные сейвы в localStorage — игра читает их синхронно и об облаке не знает;
+ *   3. отдаёт разметке отступы мобильной оболочки ВК переменными --vk-inset-*.
  *
  * Почему облако вообще нужно. На хостинге статики ВК адрес игры меняется после каждой
  * заливки, а localStorage привязан к домену — на новом адресе прогресс игрока пуст.
@@ -57,6 +58,14 @@
   var MAX_VALUE = 2200;        // с запасом от документированных 2236 символов
   var BOOT_TIMEOUT = 2500;     // столько ждём облако, дальше играем на localStorage
   var PUSH_DEBOUNCE = 1500;    // сейв дёргается часто, а лимит — 1000 вызовов в час на игрока
+  /* Нижний предел между двумя отправками ОДНОГО ключа. Автосейв игры идёт
+     раз в несколько секунд; при дебаунсе 1,5 с это 600+ вызовов в час на
+     ключ, а документированный лимит VK Storage — 1000 вызовов в час на
+     игрока на все ключи разом. Упёршись в него, площадка отвечает отказом,
+     и синхронизация тихо прекращается до конца часа. */
+  var PUSH_MIN_GAP = 12000;
+  var HYDRATE_RETRIES = 2;     // столько раз перезапросим облако, если оно не ответило
+  var RETRY_DELAY = 4000;
 
   /* Область сохранений. ВКонтакте и Одноклассники открывают игру с ОДНОГО адреса, а
      localStorage привязан к адресу — без разделения игрок ВК и игрок ОК в одном браузере
@@ -123,11 +132,59 @@
 
   /* ---- запись в облако ---- */
   var timers = {};
+  /* Последнее значение каждого ключа, которое ещё не уехало. Держим его здесь,
+     а не в замыкании таймера: отправлять надо то, что игрок оставил последним,
+     и уметь отправить это досрочно, когда игра уходит в фон. */
+  var queued = {};
+  var lastPush = {};
   /* Ключи, записанные локально ПОКА ОБЛАКО ЕХАЛО. Метки у них уже стоят, а в
      облако они не уехали — отправлять было некуда. Догоняем сразу, как облако
      ответит: иначе настройки и партия, начатые в окне ожидания, останутся только
      на этом устройстве. На мобильном интернете это окно доходило до 25 секунд. */
   var pending = {};
+
+  /** Отправить накопленное по ключу прямо сейчас. */
+  function sendNow(key) {
+    var item = queued[key];
+    if (!item) return;
+    delete queued[key];
+    if (timers[key]) { clearTimeout(timers[key]); timers[key] = null; }
+    lastPush[key] = Date.now();
+    var body = JSON.stringify({ t: item.t, v: item.v });
+    if (body.length > MAX_VALUE) {
+      if (!warned[key]) { warned[key] = 1;
+        console.warn('[облако] ' + key + ' не помещается в лимит VK Storage (' +
+          body.length + ' символов) — этот ключ остаётся только в localStorage'); }
+      return;
+    }
+    try {
+      bridge.send('VKWebAppStorageSet', { key: key, value: body })
+        .catch(function () {});
+    } catch (e) {}
+  }
+
+  /** Поставить отправку в очередь: дебаунс плюс минимальный зазор от прошлой. */
+  function schedulePush(key) {
+    var wait = Math.max(PUSH_DEBOUNCE, (lastPush[key] || 0) + PUSH_MIN_GAP - Date.now());
+    if (timers[key]) clearTimeout(timers[key]);
+    timers[key] = setTimeout(function () { sendNow(key); }, wait);
+  }
+
+  /* УХОД ИГРЫ В ФОН — последний шанс отправить. Дебаунс в выгружаемой странице
+     не срабатывает: таймер живёт в том же документе, который сейчас закроют или
+     заморозят. Раньше из-за этого в облако не доезжала ровно самая ценная
+     запись — та, что сделана победой в уровне перед закрытием игры, а в
+     мобильном приложении фоновый webview убивают вообще без предупреждения. */
+  function flushNow() {
+    var keys = Object.keys(queued);
+    for (var i = 0; i < keys.length; i++) sendNow(keys[i]);
+  }
+  window.addEventListener('pagehide', flushNow);
+  window.addEventListener('freeze', flushNow);
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') flushNow();
+  });
+
   window.__cloudPut = function (key, value) {
     /* Чужой ключ — ни метки, ни отправки: метка нужна ровно тем ключам, у
        которых есть облачный двойник, чтобы было с чем её сравнивать. Профили
@@ -148,20 +205,8 @@
        только это; на локальную запись она влиять не должна. */
     setLocalStamp(key, now);
     if (!ready) { pending[key] = now; return; }
-    clearTimeout(timers[key]);
-    timers[key] = setTimeout(function () {
-      var body = JSON.stringify({ t: now, v: value });
-      if (body.length > MAX_VALUE) {
-        if (!warned[key]) { warned[key] = 1;
-          console.warn('[облако] ' + key + ' не помещается в лимит VK Storage (' +
-            body.length + ' символов) — этот ключ остаётся только в localStorage'); }
-        return;
-      }
-      try {
-        bridge.send('VKWebAppStorageSet', { key: key, value: body })
-          .catch(function () {});
-      } catch (e) {}
-    }, PUSH_DEBOUNCE);
+    queued[key] = { t: now, v: value };
+    schedulePush(key);
   };
 
   /* Догнать облако тем, что игрок записал, пока оно ехало. Зовётся один раз, в
@@ -209,15 +254,73 @@
           setLocalStamp(row.key, env.t);
         } catch (e) {}
       }
-      ready = true;
-      /* Порядок важен: сперва догоняем облако тем, что игрок записал в окно
-         ожидания (гидратация выше уже решила, чья версия свежее), и только
-         потом сообщаем игре о приезде. */
-      flushPending();
-      /* Облако могло приехать позже заднего рубежа: игра к этому моменту уже решила
-         судьбу кнопки «Продолжить» — и решила по пустому localStorage. */
-      try { window.__cloudArrived && window.__cloudArrived(); } catch (e) {}
+      openCloud();
     });
+  }
+
+  /* Облако готово к записи. Порядок важен: сперва догоняем его тем, что игрок
+     записал в окно ожидания (гидратация уже решила, чья версия свежее), и
+     только потом сообщаем игре. Игре об этом знать обязательно: облако могло
+     приехать позже заднего рубежа, и судьбу кнопки «Продолжить» она к этому
+     моменту решила по пустому localStorage. */
+  function openCloud() {
+    if (ready) return;
+    ready = true;
+    flushPending();
+    try { window.__cloudArrived && window.__cloudArrived(); } catch (e) {}
+  }
+
+  /* Одна неудача VKWebAppStorageGet стоила игроку всей сессии: ready оставался
+     false, записи копились в pending и не уходили никуда, а игра даже не
+     узнавала, что облака не было. Теперь запрос повторяется, а если облако так
+     и не ответило — запись всё равно включаем: прогресс этой сессии должен
+     уехать. Там, где Storage просто нет (Одноклассники вне Android, iOS),
+     отправка тихо провалится, как и раньше. */
+  function hydrateWithRetry(left) {
+    return hydrate().catch(function () {
+      if (left > 0) {
+        return new Promise(function (r) { setTimeout(r, RETRY_DELAY); })
+          .then(function () { return hydrateWithRetry(left - 1); });
+      }
+      console.warn('[облако] VK Storage не ответил — прогресс пишем вслепую');
+      openCloud();
+    });
+  }
+
+  /* ---- отступы мобильной оболочки ----
+   *
+   * В приложениях ВКонтакте игра живёт в webview, поверх которого лежат
+   * системная строка и панель приложения, а env(safe-area-inset-*) внутри
+   * такого окна равен нулю: вырез известен только внешнему документу. Свои
+   * отступы площадка присылает событием VKWebAppUpdateInsets и кладёт их же в
+   * конфиг. Отдаём их разметке переменными --vk-inset-*, а игра решает сама,
+   * что от них отодвинуть: нулевые значения по умолчанию ничего не меняют.
+   */
+  function applyInsets(ins) {
+    if (!ins) return;
+    var root = document.documentElement;
+    var sides = ['top', 'right', 'bottom', 'left'];
+    /* Инсеты приходят в физических пикселях устройства — в CSS нужны свои. */
+    var k = window.devicePixelRatio > 1 ? window.devicePixelRatio : 1;
+    for (var i = 0; i < sides.length; i++) {
+      var v = Number(ins[sides[i]]);
+      if (!isFinite(v) || v < 0) continue;
+      root.style.setProperty('--vk-inset-' + sides[i], Math.round(v / k) + 'px');
+    }
+  }
+
+  function watchInsets() {
+    try {
+      bridge.subscribe(function (e) {
+        var d = e && e.detail;
+        if (!d || !d.data) return;
+        if (d.type === 'VKWebAppUpdateInsets' || d.type === 'VKWebAppUpdateConfig'
+          || d.type === 'VKWebAppGetConfigResult') applyInsets(d.data.insets);
+      });
+      bridge.send('VKWebAppGetConfig')
+        .then(function (cfg) { applyInsets(cfg && cfg.insets); })
+        .catch(function () {});
+    } catch (e) {}
   }
 
   window.__PLATFORM_READY = new Promise(function (resolve) {
@@ -226,8 +329,9 @@
     setTimeout(finish, BOOT_TIMEOUT);
     if (!bridge) { finish(); return; }
     try {
+      watchInsets();
       bridge.send('VKWebAppInit')
-        .then(function () { return hydrate(); })
+        .then(function () { return hydrateWithRetry(HYDRATE_RETRIES); })
         /* Облако может быть недоступно (Одноклассники вне Android) — это не ошибка,
            просто играем на localStorage. Разрешаем промис в любом случае. */
         .catch(function () {})
