@@ -2284,9 +2284,9 @@ html.touch-mode #ui[data-state='racing'] .touch-controls {
   display: block;
 }
 
-/* На мышином экране из всей панели показываем ОДНУ кнопку — паузу: руль и газ
-   там не нужны, а выход из гонки нужен (см. .tc-pause). Контейнер поднимаем,
-   лишние кнопки гасим поимённо. */
+/* On a mouse screen exactly one control from this panel is shown — pause:
+   steering and throttle belong to touch, the way out of a race belongs to
+   everyone (see .tc-pause). The container comes up, the rest stays hidden. */
 #ui[data-state='countdown'] .touch-controls,
 #ui[data-state='racing'] .touch-controls {
   display: block;

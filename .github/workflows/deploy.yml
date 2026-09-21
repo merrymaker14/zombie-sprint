@@ -25,10 +25,22 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      - run: npm run build
+      # This Pages site is the URL VK opens in its iframe and WebView, so the
+      # VK build goes here — not the neutral one. VK keeps its own loader over
+      # the frame until the app sends VKWebAppInit, and that call lives in
+      # libs/vkok-boot.js, which only the vkok target ships. Publishing plain
+      # `dist` left the bridge out entirely: the game ran fine on its own URL
+      # while VK moderation saw a spinner and rejected it as "does not start".
+      - run: node tools/build-targets.mjs --target=vkok
+      - name: VK bridge is really in the artifact
+        run: |
+          test -f dist-vkok/libs/vk-bridge.min.js
+          test -f dist-vkok/libs/vkok-boot.js
+          grep -q 'libs/vk-bridge.min.js' dist-vkok/index.html
+          grep -q 'libs/vkok-boot.js' dist-vkok/index.html
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: dist-vkok
 
   deploy:
     needs: build

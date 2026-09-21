@@ -289,9 +289,10 @@ const TEXT: Record<Language, Record<string, string>> = {
     'track.neon_nexus.name': 'Неоновый Карантин',
     'track.neon_nexus.description': 'Огни карантина, прыжки с крыш и три больших поворота.',
     // Trackside signs painted on canvas textures.
-    /* Название игры не переводим: в карточке магазина и на обложке оно
-       одно — Zombie Sprint, а Яндекс требует, чтобы в самой игре было то же
-       (п. 5.1.3). Русский вариант на арке давал второе написание. */
+    /* The title stays untranslated on purpose: the store card and the cover
+       both read Zombie Sprint, and Yandex asks for one spelling everywhere,
+       inside the game included (rule 5.1.3). The Russian arch sign used to
+       give a second one. */
     'sign.title': 'ZOMBIE SPRINT',
     'sign.startFinish': 'СТАРТ · ФИНИШ',
     'sign.restInSpeed': 'ПОКОЙ НАМ ТОЛЬКО СНИТСЯ',
