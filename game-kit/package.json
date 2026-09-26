@@ -6,6 +6,7 @@
   "exports": {
     "./build": "./build/index.mjs",
     "./platform": "./platform/index.js",
-    "./platform/ads.js": "./platform/ads.js"
+    "./platform/ads.js": "./platform/ads.js",
+    "./save": "./save/index.js"
   }
 }

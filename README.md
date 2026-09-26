@@ -13,7 +13,11 @@ decoration are generated in code. There are no external game assets to host.
 - 4 routes: Graveyard Loop, Doomsday Highway, Frozen Outbreak and Neon Quarantine.
 - 3-lap runs against 7 AI rivals.
 - Drift mini-boosts, speed pads, powers, collisions and catch-up balancing.
+- Route records: best place and time per route and difficulty, shown on the route
+  cards and after each run. They travel with the player's account through the
+  platform cloud (`cloudKeys` in `package.json`), merged record by record.
 - Keyboard, gamepad and touch controls (phones and tablets in landscape).
+- Sound switch on the title and in the pause menu (and the M key).
 - Interstitial ads after completed runs and display banners on non-racing screens.
 - Platform pause, mute and gameplay signals wired through `game-kit`.
 
@@ -65,6 +69,10 @@ platform mute and gameplay start/stop signals.
 | Look back | Q | | |
 | Pause | Esc / P | Start | Pause button at the top |
 | Menu confirm / back | Enter / Space / Esc | A / B | Tap |
+| Mute | M | | Sound button on the title / in pause |
+
+The browser's back action (the back gesture in the VK apps) steps back inside the
+game: race → pause → main menu; only on the title does it leave the game.
 
 ## Project layout
 

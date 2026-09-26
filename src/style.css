@@ -313,6 +313,10 @@ kbd {
 .screen {
   position: absolute;
   inset: 0;
+  /* Above the race HUD: the HUD is built for every race and lands after the screens
+     in the DOM, so without a layer it painted over the pause menu — the speedometer
+     lay across "Main menu" and the countdown banner across the whole panel. */
+  z-index: 5;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -488,6 +492,7 @@ kbd {
 
 .btn.lang-btn {
   min-width: 42px;
+  min-height: 34px;
   padding: 7px 10px;
   border-radius: 999px;
   font-size: 12px;
@@ -2036,6 +2041,7 @@ html[lang='ru'] .panel-tracks .select-header::after {
 /* Mute indicator + toasts */
 .mute-indicator {
   position: absolute;
+  z-index: 6;
   top: 14px;
   left: 50%;
   transform: translate(-50%, -20px);
@@ -2561,4 +2567,78 @@ html.touch-mode .hud-speed {
 
 @media (prefers-reduced-motion: reduce) {
   .boot-splash-dots { animation: none; }
+}
+
+/* Sound switch on the title, right under the language picker. The M key used to be
+   the only way to mute, and a phone has no keyboard (VK 2.2.5). */
+.sound-picker {
+  position: absolute;
+  top: calc(clamp(14px, 2.5vh, 28px) + 50px);
+  right: 3vw;
+  z-index: 3;
+  display: flex;
+  padding: 6px;
+  pointer-events: auto;
+  cursor: default;
+}
+
+.btn.sound-btn {
+  min-width: 42px;
+  min-height: 34px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.btn.sound-btn.off,
+.btn.pause-sound.off {
+  color: #ffb3b3;
+}
+
+/* Route record on a track card, for the difficulty picked below the cards. */
+.track-record {
+  margin-top: 6px;
+  font-family: var(--display);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: #ffd23f;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.track-record.hidden {
+  display: none;
+}
+
+/* Route record under the results heading; a fresh one gets a badge. */
+.results-record {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 6px 10px;
+  margin: -8px 0 12px;
+  color: var(--ink-dim);
+  font-size: 13px;
+}
+
+.results-record.hidden {
+  display: none;
+}
+
+.record-badge {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-family: var(--display);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: #17231b;
+  background: linear-gradient(100deg, #ffd23f, #ffe98a);
+}
+
+.results-record.new .record-text {
+  color: #ffd23f;
 }

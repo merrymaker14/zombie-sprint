@@ -10,10 +10,14 @@ export class PauseMenu {
   onResume: (() => void) | null = null;
   onRestart: (() => void) | null = null;
   onQuit: (() => void) | null = null;
+  onToggleSound: (() => void) | null = null;
 
   private readonly rootNode: HTMLElement;
   private readonly focus: FocusRing;
   private readonly languageUnsub: () => void;
+  /** Sound switch: on a phone there is no M key, and VK asks for a quick way to mute (2.2.5). */
+  private readonly soundButton: HTMLButtonElement;
+  private soundMuted = false;
   private visible = false;
 
   constructor(root: HTMLElement) {
@@ -28,13 +32,16 @@ export class PauseMenu {
     this.focus = new FocusRing((i) => this.activate(i));
     const resume = button(t('pause.resume'), 'primary', () => this.activate(0));
     const restart = button(t('pause.restart'), '', () => this.activate(1));
-    const quit = button(t('pause.quit'), 'danger', () => this.activate(2));
+    this.soundButton = button(t('sound.on'), 'pause-sound', () => this.activate(2));
+    this.soundButton.dataset.action = 'sound';
+    const quit = button(t('pause.quit'), 'danger', () => this.activate(3));
     resume.dataset.i18n = 'pause.resume';
     restart.dataset.i18n = 'pause.restart';
     quit.dataset.i18n = 'pause.quit';
-    actions.append(resume, restart, quit);
+    actions.append(resume, restart, this.soundButton, quit);
     this.focus.add(resume);
     this.focus.add(restart);
+    this.focus.add(this.soundButton);
     this.focus.add(quit);
 
     const hint = el('div', 'panel-hint', t('pause.hint'), panel);
@@ -57,6 +64,13 @@ export class PauseMenu {
     return this.visible;
   }
 
+  /** Show the player's own sound switch. */
+  setSound(muted: boolean): void {
+    this.soundMuted = muted;
+    this.soundButton.textContent = t(muted ? 'sound.off' : 'sound.on');
+    this.soundButton.classList.toggle('off', muted);
+  }
+
   handleInput(input: InputState): void {
     if (!this.visible) return;
     if (input.menuUp || input.menuLeft) {
@@ -76,6 +90,7 @@ export class PauseMenu {
     events.emit('ui:select', {});
     if (i === 0) this.onResume?.();
     else if (i === 1) this.onRestart?.();
+    else if (i === 2) this.onToggleSound?.();
     else this.onQuit?.();
   }
 
@@ -89,5 +104,6 @@ export class PauseMenu {
       const key = node.dataset.i18n;
       if (key) node.textContent = t(key);
     });
+    this.setSound(this.soundMuted);
   }
 }

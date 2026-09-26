@@ -3,10 +3,17 @@
  * finish and Race Again / Change Track / Main Menu actions.
  */
 import type { InputState, RaceStanding } from '../core/types';
+import type { RecordResult, TrackRecord } from '../game/Records';
 import { events } from '../core/events';
 import { formatRaceTime } from '../core/math';
 import { button, cssHex, el, FocusRing, TextField } from './dom';
 import { characterName, formatOrdinal, formatPlace, onLanguageChange, t } from '../core/i18n';
+
+/** The player's record on this route after the race, and what the race improved. */
+export interface ResultsRecord {
+  best: TrackRecord | null;
+  result: RecordResult | null;
+}
 
 const CONFETTI_COUNT = 56;
 const CONFETTI_COLORS = ['#ffd23f', '#ff3ab8', '#37a8ff', '#7cff6b', '#ff7a2f', '#ffffff'];
@@ -20,11 +27,13 @@ export class ResultsScreen {
   private readonly panel: HTMLElement;
   private readonly heading: TextField;
   private readonly subheading: TextField;
+  private readonly recordLine: HTMLElement;
   private readonly table: HTMLElement;
   private readonly confetti: HTMLElement;
   private readonly focus: FocusRing;
   private readonly languageUnsub: () => void;
   private standings: readonly RaceStanding[] = [];
+  private record: ResultsRecord | null = null;
   private visible = false;
 
   constructor(root: HTMLElement) {
@@ -35,6 +44,7 @@ export class ResultsScreen {
     kicker.dataset.i18n = 'results.kicker';
     this.heading = new TextField(el('h2', 'panel-title results-title', '', this.panel));
     this.subheading = new TextField(el('div', 'results-sub', '', this.panel));
+    this.recordLine = el('div', 'results-record', undefined, this.panel);
     this.table = el('div', 'standings', undefined, this.panel);
     const actions = el('div', 'actions', undefined, this.panel);
     this.focus = new FocusRing((i) => this.activate(i));
@@ -51,9 +61,11 @@ export class ResultsScreen {
     this.languageUnsub = onLanguageChange(() => this.refreshLanguage());
   }
 
-  show(standings: readonly RaceStanding[]): void {
+  show(standings: readonly RaceStanding[], record: ResultsRecord | null = null): void {
     this.standings = standings;
+    this.record = record;
     this.renderStandings(standings);
+    this.renderRecord();
     this.focus.set(0);
     this.rootNode.classList.remove('hidden');
     this.panel.classList.remove('panel-in');
@@ -104,6 +116,23 @@ export class ResultsScreen {
     if (place <= 3) this.spawnConfetti();
   }
 
+  /**
+   * The route record under the heading. A record gives a finished race a goal
+   * beyond "run again": beat your own place or time on this route.
+   */
+  private renderRecord(): void {
+    const line = this.recordLine;
+    line.replaceChildren();
+    const best = this.record?.best ?? null;
+    line.classList.toggle('hidden', !best);
+    if (!best) return;
+    const r = this.record?.result;
+    const fresh = !!r && (r.improvedPlace || r.improvedTime);
+    line.classList.toggle('new', fresh);
+    if (fresh) el('span', 'record-badge', t('records.new'), line);
+    el('span', 'record-text', t('records.here', { place: formatOrdinal(best.place), time: formatRaceTime(best.time) }), line);
+  }
+
   hide(): void {
     this.rootNode.classList.add('hidden');
     this.confetti.replaceChildren();
@@ -140,6 +169,7 @@ export class ResultsScreen {
     });
     if (this.visible) {
       this.renderStandings(this.standings);
+      this.renderRecord();
       this.revealPlayerRow();
     }
   }

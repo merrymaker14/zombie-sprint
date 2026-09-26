@@ -276,12 +276,21 @@ export function stripeByAngle(geo: THREE.BufferGeometry, a: number, b: number, c
 // Pictogram atlas (no lettering: every sign is a symbol)
 // =====================================================================================
 
-const atlasCache = new WeakMap<BuildContext, THREE.CanvasTexture>();
+/**
+ * One 4x4 pictogram atlas for the whole session (cell 0,0 is plain white).
+ *
+ * It used to be one atlas per track build, disposed with the track, and that leaked
+ * a 1024² texture per race on three routes out of four. The props using it cast
+ * shadows with alphaTest 0, so three.js renders their shadows through its one shared
+ * depth material, which keeps the last caster's map. The menu's shadow pass then
+ * uploaded the atlas the track had just disposed, and nothing ever disposed it again.
+ * The pictograms do not depend on the track, so a single atlas that lives as long as
+ * the game fixes the leak and saves drawing and uploading it on every race.
+ */
+let sharedAtlas: THREE.CanvasTexture | null = null;
 
-/** One shared 4x4 pictogram atlas per track build (cell 0,0 is plain white). */
-export function propAtlas(ctx: BuildContext): THREE.CanvasTexture {
-  const cached = atlasCache.get(ctx);
-  if (cached) return cached;
+export function propAtlas(_ctx: BuildContext): THREE.CanvasTexture {
+  if (sharedAtlas) return sharedAtlas;
   const canvas = document.createElement('canvas');
   canvas.width = ATLAS_SIZE;
   canvas.height = ATLAS_SIZE;
@@ -294,8 +303,8 @@ export function propAtlas(ctx: BuildContext): THREE.CanvasTexture {
   tex.generateMipmaps = true;
   tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.needsUpdate = true;
-  track(ctx, tex);
-  atlasCache.set(ctx, tex);
+  // Deliberately not registered with the track: it outlives every race (see above).
+  sharedAtlas = tex;
   return tex;
 }
 

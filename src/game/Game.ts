@@ -38,6 +38,7 @@ import { ParticleSystem } from '../fx/ParticleSystem';
 import { PostFX } from '../fx/PostFX';
 
 import { RaceManager } from './RaceManager';
+import { Records } from './Records';
 import { FollowCamera } from './FollowCamera';
 import { MenuBackdrop } from './MenuBackdrop';
 import type { MenuFraming } from './MenuBackdrop';
@@ -146,6 +147,8 @@ export class Game {
   private readonly loading: LoadingScreen;
   private readonly muteIndicator: HTMLElement;
   private readonly languageUnsub: () => void;
+  /** Best place and time per route and difficulty — the progress that follows the player's account. */
+  readonly records = new Records();
 
   private state: GameState = 'boot';
   private prePauseState: GameState = 'racing';
@@ -230,6 +233,19 @@ export class Game {
     this.mainMenu.onHighlight = (id) => this.backdrop.setCharacter(getCharacter(id));
     this.mainMenu.onPanelChange = (panel) => this.onMenuPanel(panel);
     this.mainMenu.onStart = (settings) => this.startRace(settings);
+    this.mainMenu.onToggleSound = () => this.toggleMute();
+    this.mainMenu.recordFor = (trackId, difficulty) => this.records.get(trackId, difficulty);
+    this.mainMenu.refreshRecords();
+
+    /* The platform cloud arrives after the game has started (the bootstrap does not
+       wait for it past a short limit). Merge it in rather than letting the next save
+       overwrite a record set on another device, and tell the player when it brought
+       something: a filled-in route list out of nowhere reads like a glitch. */
+    (window as unknown as { __cloudArrived?: () => void }).__cloudArrived = () => {
+      const gained = this.records.merge();
+      this.mainMenu.refreshRecords();
+      if (gained) showToast(t('records.loaded'), 'info', 4000);
+    };
 
     this.results = new ResultsScreen(this.uiRoot);
     this.results.onRaceAgain = () => {
@@ -250,6 +266,7 @@ export class Game {
       this.leavePause();
       this.returnToMenu('title');
     };
+    this.pauseMenu.onToggleSound = () => this.toggleMute();
 
     this.loading = new LoadingScreen(this.uiRoot);
     this.muteIndicator = el('div', 'mute-indicator', t('game.muted'), this.uiRoot);
@@ -295,6 +312,42 @@ export class Game {
 
   get currentState(): GameState {
     return this.state;
+  }
+
+  /**
+   * One step of the "back" ladder: race → pause → main menu → out of the game.
+   * In the VK apps the back gesture closes the mini app outright, straight out of a
+   * race; main.ts turns it into this step while the game is anywhere but the title.
+   * @returns true — there was something to close
+   */
+  back(): boolean {
+    if (this.adBusy) return true;
+    switch (this.state) {
+      case 'countdown':
+      case 'racing':
+      case 'finished':
+        this.pause();
+        return true;
+      case 'paused':
+        this.leavePause();
+        this.returnToMenu('title');
+        return true;
+      case 'results':
+        this.returnToMenu('title');
+        return true;
+      case 'characterSelect':
+      case 'trackSelect':
+        return this.mainMenu.back();
+      case 'loading':
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  /** Anywhere but the title, the back gesture belongs to the game. */
+  get inside(): boolean {
+    return this.state !== 'title' && this.state !== 'boot';
   }
 
   /** Platform ad SDKs can pause the race when an advert opens or the tab hides. */
@@ -993,7 +1046,13 @@ export class Game {
     const r = this.race;
     if (!r || this.state === 'results') return;
     r.hud.hide();
-    this.results.show(r.raceManager.getStandings());
+    const standings = r.raceManager.getStandings();
+    /* A finished run counts toward the route record; an unfinished one (no finish
+       time) changes nothing. The record line is shown either way once one exists. */
+    const you = standings.find((s) => s.isPlayer);
+    const difficulty = r.settings.difficulty;
+    const result = you ? this.records.submit(r.trackDef.id, difficulty, you.place, you.finishTime) : null;
+    this.results.show(standings, { best: this.records.get(r.trackDef.id, difficulty), result });
     this.setState('results');
     this.playMusic('results');
   }
@@ -1103,6 +1162,9 @@ export class Game {
       this.audio.setSilenced?.('platform', this.platformMuted);
     });
     this.muteIndicator.classList.toggle('visible', this.userMuted || this.platformMuted);
+    // The on-screen switches show the player's own choice; the host's mute has its own indicator.
+    this.mainMenu.setSound(this.userMuted);
+    this.pauseMenu.setSound(this.userMuted);
   }
 
   private applyBackground(): void {

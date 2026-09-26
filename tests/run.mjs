@@ -45,10 +45,12 @@ const steps = [
   ['жизненный цикл', ['tests/lifecycle.mjs', '--url=' + URL]],
   ['обязательства перед площадками', ['tests/platform.mjs', '--url=' + URL]],
   ['игра на телефоне', ['tests/touch.mjs', '--url=' + URL]],
+  ['память видеокарты между гонками', ['tests/leaks.mjs', '--url=' + URL]],
 ];
 const distSteps = [
   ['пересборка всех целей', ['tools/build-targets.mjs']],
   ['слой рекламы на сборке CrazyGames', ['tests/sdk-drivers.mjs', '--dir=dist-crazy']],
+  ['перенос рекордов между устройствами (ВК)', ['tests/vk-sync.mjs']],
 ];
 
 let failed = 0;

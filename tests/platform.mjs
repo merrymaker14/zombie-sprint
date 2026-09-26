@@ -296,6 +296,93 @@ console.log('\n--- игровое поле и выход из гонки ---');
   await context.close();
 }
 
+/* Звук, «назад» и рекорды трасс.
+ *   · выключить звук можно не только клавишей M: на телефоне клавиатуры нет, а ВК
+ *     требует быстрое включение и выключение звука (п. 2.2.5);
+ *   · в мини-приложении ВК жест «назад» закрывает игру целиком — из гонки он обязан
+ *     вести на паузу, из паузы в главное меню, и только с титула наружу;
+ *   · рекорд трассы — прогресс игрока: виден на итогах и переживает перезагрузку. */
+console.log('\n--- звук, «назад» и рекорды ---');
+{
+  const { page, errors, context } = await openGame(browser, BASE);
+  await waitState(page, 'title');
+  await page.evaluate(() => localStorage.removeItem('zs_records'));
+  await page.reload();
+  await waitState(page, 'title');
+  const muted = () => page.evaluate(() => window.__zombieSprint.audio.muted);
+  const titleSound = () => page.evaluate(() => {
+    const b = document.querySelector('.sound-picker .sound-btn');
+    if (!b) return null;
+    const r = b.getBoundingClientRect();
+    return { text: (b.textContent || '').trim(), w: Math.round(r.width), h: Math.round(r.height) };
+  });
+
+  const s0 = await titleSound();
+  ok('на титуле есть кнопка звука', !!s0 && s0.h >= 30 && s0.w >= 44, JSON.stringify(s0));
+  const m0 = await muted();
+  await page.click('.sound-picker .sound-btn');
+  await sleep(250);
+  const s1 = await titleSound();
+  ok('кнопка звука на титуле переключает звук и подпись', (await muted()) !== m0 && !!s1 && s1.text !== s0.text, `${s0 && s0.text} → ${s1 && s1.text}`);
+  ok('клик по кнопке звука не начинает игру', (await state(page)) === 'title', 'state ' + (await state(page)));
+  await page.click('.sound-picker .sound-btn');
+  await sleep(150);
+
+  await startRace(page);
+  await waitState(page, 'racing');
+  await page.click('.tc-pause', { force: true });
+  await sleep(400);
+  const pauseSound = await page.$('.screen.pause [data-action="sound"]');
+  ok('в паузе есть кнопка звука', !!pauseSound);
+  const m1 = await muted();
+  if (pauseSound) {
+    await page.click('.screen.pause [data-action="sound"]');
+    await sleep(200);
+    ok('кнопка звука в паузе переключает звук', (await muted()) !== m1);
+    await page.click('.screen.pause [data-action="sound"]');
+    await sleep(150);
+  }
+  await page.click('.screen.pause [data-i18n="pause.resume"]');
+  await sleep(300);
+
+  /* «Назад» браузера — так приложение ВК передаёт свой жест в мини-приложение. */
+  const url0 = page.url();
+  await page.goBack({ waitUntil: 'commit', timeout: 3000 }).catch(() => {});
+  await sleep(400);
+  const b1 = await state(page);
+  await page.goBack({ waitUntil: 'commit', timeout: 3000 }).catch(() => {});
+  await sleep(900);
+  const b2 = await state(page);
+  ok('«назад» идёт по лестнице гонка → пауза → главное меню', b1 === 'paused' && b2 === 'title', `${b1} → ${b2}`);
+  ok('«назад» не уводит со страницы игры', page.url() === url0, page.url());
+
+  await startRace(page);
+  await waitState(page, 'racing');
+  /* Секунда заезда: финиш в первый же кадр даёт время 0, а заезд с нулевым временем
+     игра правильно не записывает в рекорды — проверка мерила бы гонку часов. */
+  await sleep(1200);
+  await finishAll(page);
+  await waitState(page, 'results', 30000);
+  await sleep(300);
+  const res = await page.evaluate(() => ({
+    record: (document.querySelector('.results-record')?.textContent || '').trim(),
+    menu: (document.querySelector('.screen.results [data-i18n="results.menu"]')?.textContent || '').trim(),
+  }));
+  ok('итоги показывают новый рекорд трассы', /НОВЫЙ РЕКОРД|NEW TRACK RECORD/.test(res.record), res.record);
+  ok('выход с итогов подписан как главное меню', /ГЛАВНОЕ МЕНЮ|MAIN MENU/.test(res.menu), res.menu);
+
+  await page.reload();
+  await waitState(page, 'title');
+  const card = await page.evaluate(() => {
+    const n = document.querySelector('.track-record');
+    return n && !n.classList.contains('hidden') ? (n.textContent || '').trim() : '';
+  });
+  ok('рекорд пережил перезагрузку и виден в карточке трассы', /РЕКОРД|BEST/.test(card), card);
+
+  allErrors.push(...errors.map((e) => 'extras: ' + e));
+  await context.close();
+}
+
 await browser.close();
 ok('без ошибок в консоли', allErrors.length === 0, allErrors.slice(0, 5).join(' | '));
 if (failures()) { console.error(`\nплощадки: ${failures()} проверок не прошли`); process.exit(1); }

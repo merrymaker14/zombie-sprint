@@ -3,7 +3,9 @@
  * behind it is owned by Game (mirrored via onHighlight).
  */
 import type { CharacterDef, Difficulty, InputState, RaceSettings, TrackDefinition } from '../core/types';
+import type { TrackRecord } from '../game/Records';
 import { events } from '../core/events';
+import { formatRaceTime } from '../core/math';
 import { GAME_TITLE, DEFAULT_LAPS } from '../core/constants';
 import { button, cssHex, cssRgba, el, TextField } from './dom';
 import {
@@ -11,6 +13,7 @@ import {
   characterTagline,
   difficultyBlurb,
   difficultyLabel,
+  formatOrdinal,
   getLanguage,
   onLanguageChange,
   setLanguage,
@@ -269,6 +272,9 @@ export class MainMenu {
   onStart: ((settings: RaceSettings) => void) | null = null;
   onHighlight: ((characterId: string) => void) | null = null;
   onPanelChange: ((panel: MenuPanel) => void) | null = null;
+  onToggleSound: (() => void) | null = null;
+  /** The player's record for a route and difficulty (null — none yet). */
+  recordFor: ((trackId: string, difficulty: Difficulty) => TrackRecord | null) | null = null;
 
   private readonly rootNode: HTMLElement;
   private readonly panels: Record<MenuPanel, HTMLElement>;
@@ -298,6 +304,13 @@ export class MainMenu {
   private readonly keyLabelsUnsub: () => void;
   private clickLockUntil = 0;
   private fitFrame = 0;
+  /**
+   * Sound switch on the title. Until now the only way to mute was the M key: a
+   * phone has none, and VK asks for a quick sound switch in the app (2.2.5).
+   */
+  private readonly soundButton: HTMLButtonElement;
+  private soundMuted = false;
+  private readonly recordPills: HTMLElement[] = [];
 
   constructor(
     root: HTMLElement,
@@ -327,6 +340,11 @@ export class MainMenu {
       languageButton.dataset.language = code;
       languageButtons.appendChild(languageButton);
     }
+    const soundPicker = el('div', 'sound-picker glass', undefined, title);
+    soundPicker.addEventListener('click', (ev) => ev.stopPropagation());
+    this.soundButton = button(t('sound.on'), 'sound-btn', () => this.onToggleSound?.());
+    this.soundButton.dataset.action = 'sound';
+    soundPicker.appendChild(this.soundButton);
     const prompt = el('div', 'press-start', undefined, title);
     this.i18nText('span', 'press-start-text press-start-keys', 'menu.pressStart', prompt);
     this.i18nText('span', 'press-start-text press-start-touch', 'menu.pressStartTouch', prompt);
@@ -470,6 +488,8 @@ export class MainMenu {
   show(panel: MenuPanel = 'title'): void {
     this.rootNode.classList.remove('hidden');
     this.visible = true;
+    // A race just finished may have set a record.
+    this.refreshRecords();
     // The menu reopens under the cursor that just clicked a results or pause button.
     this.lockClicks();
     this.goTo(panel, false);
@@ -479,6 +499,15 @@ export class MainMenu {
   hide(): void {
     this.rootNode.classList.add('hidden');
     this.visible = false;
+  }
+
+  /** One step back through the panels; false on the title, where nothing is left to close. */
+  back(): boolean {
+    if (!this.visible) return false;
+    if (this.panel === 'trackSelect') this.goTo('characterSelect', true);
+    else if (this.panel === 'characterSelect') this.goTo('title', true);
+    else return false;
+    return true;
   }
 
   dispose(): void {
@@ -658,6 +687,7 @@ export class MainMenu {
     this.difficultyIndex = i;
     this.diffButtons.forEach((b, k) => b.classList.toggle('selected', k === i));
     this.diffBlurb.set(difficultyBlurb(DIFFICULTIES[i]));
+    this.refreshRecords();
     this.refreshTrackFocus();
     if (changed && sound) events.emit('ui:move', {});
   }
@@ -733,7 +763,27 @@ export class MainMenu {
     const meta = el('div', 'track-meta', undefined, body);
     el('span', 'pill laps-pill', t('menu.laps', { count: trackDef.laps }), meta);
     el('span', 'pill difficulty-pill', difficultyLabel(DIFFICULTIES[trackDef.difficulty - 1] ?? 'normal'), meta);
+    this.recordPills.push(el('div', 'track-record hidden', '', body));
     return card;
+  }
+
+  /** Record lines on the route cards, for the difficulty picked below them. */
+  refreshRecords(): void {
+    const difficulty = DIFFICULTIES[this.difficultyIndex];
+    this.tracks.forEach((tr, i) => {
+      const pill = this.recordPills[i];
+      if (!pill) return;
+      const best = this.recordFor?.(tr.id, difficulty) ?? null;
+      pill.classList.toggle('hidden', !best);
+      pill.textContent = best ? t('records.best', { place: formatOrdinal(best.place), time: formatRaceTime(best.time) }) : '';
+    });
+  }
+
+  /** Show the player's own sound switch. */
+  setSound(muted: boolean): void {
+    this.soundMuted = muted;
+    this.soundButton.textContent = t(muted ? 'sound.off' : 'sound.on');
+    this.soundButton.classList.toggle('off', muted);
   }
 
   private i18nText<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, key: string, parent: HTMLElement): HTMLElementTagNameMap[K] {
@@ -782,6 +832,7 @@ export class MainMenu {
     });
     this.setCharacter(this.charIndex);
     this.setDifficulty(this.difficultyIndex);
+    this.setSound(this.soundMuted);
     this.jokeLine.set(zombieJoke());
     this.fitLayout();
   }

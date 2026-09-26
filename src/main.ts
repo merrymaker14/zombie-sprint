@@ -143,6 +143,29 @@ function boot(): void {
       requestAnimationFrame(syncBanner);
     };
     requestAnimationFrame(syncBanner);
+
+    // In the VK apps the back gesture closes the mini app outright: a player mid-race
+    // was thrown out of the game instead of getting the pause menu. While the game is
+    // anywhere but the title, a guard entry sits in the history: "back" consumes it,
+    // the game takes one step (race → pause → main menu) and the guard is set again.
+    // On the title there is none, and "back" leaves the game as it should. The entry
+    // is added only on a player's gesture: browsers skip entries added without one.
+    let backGuard = false;
+    const syncGuard = (): void => {
+      if (backGuard || !game.inside) return;
+      backGuard = true;
+      try {
+        history.pushState({ zs: 'game' }, '');
+      } catch {
+        backGuard = false;
+      }
+    };
+    for (const type of ['pointerup', 'click', 'keyup'] as const) window.addEventListener(type, syncGuard);
+    window.addEventListener('popstate', () => {
+      backGuard = false;
+      game.back();
+      syncGuard();
+    });
     (window as unknown as { __zombieSprint?: Game }).__zombieSprint = game;
   } catch (err) {
     console.error('[main] failed to start game', err);

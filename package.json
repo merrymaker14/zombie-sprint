@@ -1,7 +1,7 @@
 {
   "name": "zombie-sprint",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "description": "Zombie Sprint — a cartoon zombie championship built with Three.js. Fully procedural: no external assets.",
   "scripts": {
@@ -19,7 +19,8 @@
     "three": "^0.185.1"
   },
   "targets": ["yandex", "vkok", "crazy", "gamedist"],
-  "cloudKeys": [],
+  "//cloudKeys": "Рекорды трасс едут в облако площадки: прогресс обязан переезжать между устройствами (ВК, п. 2.3.8).",
+  "cloudKeys": ["zs_records"],
   "localKeys": ["zs_audio_muted"],
   "gdGameId": "331e7fa3e07a4154bc9062922bef2f50",
   "//vkAppId": "App ID приложения ВКонтакте: vk.ru/app54771434",
