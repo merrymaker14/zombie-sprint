@@ -328,7 +328,8 @@ export class MainMenu {
       line.dataset.text = w;
       line.textContent = w;
     });
-    this.i18nText('div', 'logo-sub', 'brand.subtitle', title);
+    // No line under the logo: Yandex reads a subtitle right under the name as a second
+    // name (5.1.3) — a sister game was returned for exactly that.
     this.jokeLine = new TextField(el('div', 'zombie-joke', zombieJoke(), title));
     const languagePicker = el('div', 'language-picker glass', undefined, title);
     // A miss on the label or the gap between buttons must not count as "click to start".

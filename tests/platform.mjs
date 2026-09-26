@@ -304,10 +304,8 @@ console.log('\n--- игровое поле и выход из гонки ---');
  *   · рекорд трассы — прогресс игрока: виден на итогах и переживает перезагрузку. */
 console.log('\n--- звук, «назад» и рекорды ---');
 {
+  // A fresh browser context: storage is empty, no records yet.
   const { page, errors, context } = await openGame(browser, BASE);
-  await waitState(page, 'title');
-  await page.evaluate(() => localStorage.removeItem('zs_records'));
-  await page.reload();
   await waitState(page, 'title');
   const muted = () => page.evaluate(() => window.__zombieSprint.audio.muted);
   const titleSound = () => page.evaluate(() => {
@@ -371,7 +369,9 @@ console.log('\n--- звук, «назад» и рекорды ---');
   ok('итоги показывают новый рекорд трассы', /НОВЫЙ РЕКОРД|NEW TRACK RECORD/.test(res.record), res.record);
   ok('выход с итогов подписан как главное меню', /ГЛАВНОЕ МЕНЮ|MAIN MENU/.test(res.menu), res.menu);
 
-  await page.reload();
+  /* Готовность игры, а не событие load: dev-сервер иногда отдаёт модули дольше
+     тридцати секунд, и проверка падала на ожидании, а не на игре. */
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 90000 });
   await waitState(page, 'title');
   const card = await page.evaluate(() => {
     const n = document.querySelector('.track-record');

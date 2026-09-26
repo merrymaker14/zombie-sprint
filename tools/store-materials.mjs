@@ -24,7 +24,6 @@ const RAW = path.join(ROOT, 'store-assets', '_raw');
 const FONT = 'C\\:/Windows/Fonts/segoeuib.ttf';
 const BEAT = 60 / 152;
 const FPS = 30;
-const SUBTITLE = { ru: 'ЧЕМПИОНАТ ЗОМБИ', en: 'ZOMBIE CHAMPIONSHIP' };
 const TRACKS = ['sunny_circuit', 'dune_drift', 'frostbite_falls', 'neon_nexus'];
 const HEROES = ['rosa', 'bram', 'juno', 'max', 'fennec', 'kai', 'pixel', 'zippy'];
 
@@ -277,12 +276,14 @@ async function capture(browser, lang) {
 const music = path.join(RAW, 'music-race.wav');
 ff(['-i', path.join(RAW, 'music-race.webm'), '-af', 'silenceremove=start_periods=1:start_threshold=-45dB,loudnorm=I=-15:TP=-1.5:LRA=11', '-ar', '48000', music]);
 
-function shot(src, from, beats, out, text = null) {
+function shot(src, from, beats, out, withTitle = false) {
   const dur = beats * BEAT;
   // Push-in computed at 4x and scaled down, so zoom and centre steps are sub-pixel instead of 1-2 px jumps.
   const push = `scale=w='2*trunc(5120*(1+0.04*t/${dur.toFixed(4)})/2)':h='2*trunc(2880*(1+0.04*t/${dur.toFixed(4)})/2)':eval=frame:flags=bicubic,crop=5120:2880,scale=1280:720:flags=lanczos,setsar=1`;
-  const title = text
-    ? `,drawbox=x=0:y=ih*0.62:w=iw:h=ih*0.3:color=0x07091a@0.5:t=fill,drawtext=fontfile='${FONT}':text='ZOMBIE SPRINT':fontcolor=white:fontsize=92:x=(w-text_w)/2:y=h*0.66:shadowcolor=0x000000@0.8:shadowx=4:shadowy=4,drawtext=fontfile='${FONT}':text='${text}':fontcolor=0xb8ff7a:fontsize=40:x=(w-text_w)/2:y=h*0.8:shadowcolor=0x000000@0.8:shadowx=3:shadowy=3`
+  // The name only. A line under it ("ZOMBIE CHAMPIONSHIP") is what Yandex reads as a
+  // second name (5.1.3): a sister game was returned for a subtitle under its title.
+  const title = withTitle
+    ? `,drawbox=x=0:y=ih*0.64:w=iw:h=ih*0.22:color=0x07091a@0.5:t=fill,drawtext=fontfile='${FONT}':text='ZOMBIE SPRINT':fontcolor=white:fontsize=92:x=(w-text_w)/2:y=h*0.75-text_h/2:shadowcolor=0x000000@0.8:shadowx=4:shadowy=4`
     : '';
   ff(['-ss', from.toFixed(3), '-i', src, '-t', dur.toFixed(4), '-an', '-vf', `fps=${FPS},${push}${title}`,
     '-c:v', 'libx264', '-preset', 'slow', '-pix_fmt', 'yuv420p', '-crf', '21', '-maxrate', '5M', '-bufsize', '10M', '-r', String(FPS), out]);
@@ -299,7 +300,7 @@ function cut(lang, name, plan) {
   plan.forEach((p, i) => {
     const out = path.join(parts, `${String(i).padStart(2, '0')}.mp4`);
     bounds.push(total + (p.beats * BEAT) / 2);
-    total += shot(path.join(dir, p.clip), p.from, p.beats, out, p.title ? SUBTITLE[lang] : null);
+    total += shot(path.join(dir, p.clip), p.from, p.beats, out, !!p.title);
     list.push(`file '${out.replace(/\\/g, '/')}'`);
   });
   const listFile = path.join(parts, 'list.txt');
