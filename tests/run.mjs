@@ -45,6 +45,7 @@ const steps = [
   ['жизненный цикл', ['tests/lifecycle.mjs', '--url=' + URL]],
   ['обязательства перед площадками', ['tests/platform.mjs', '--url=' + URL]],
   ['игра на телефоне', ['tests/touch.mjs', '--url=' + URL]],
+  ['вёрстка на телефонах', ['tests/layout.mjs', '--url=' + URL]],
   ['память видеокарты между гонками', ['tests/leaks.mjs', '--url=' + URL]],
 ];
 const distSteps = [

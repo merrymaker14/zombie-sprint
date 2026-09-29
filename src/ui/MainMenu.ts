@@ -311,6 +311,15 @@ export class MainMenu {
   private readonly soundButton: HTMLButtonElement;
   private soundMuted = false;
   private readonly recordPills: HTMLElement[] = [];
+  /**
+   * Stats of the picked racer, beside the card grid. Short screens drop the stat bars
+   * from the cards to fit all eight, and VK moderation found no way to see the racers'
+   * stats on a phone; this panel shows them whenever the cards cannot (CSS, `.fit-3`).
+   */
+  private readonly charStats: HTMLElement;
+  private readonly charStatsClass: HTMLElement;
+  private readonly charStatsFills: HTMLElement[] = [];
+  private readonly charStatsLabels: HTMLElement[] = [];
 
   constructor(
     root: HTMLElement,
@@ -390,6 +399,16 @@ export class MainMenu {
       charGrid.appendChild(card);
       this.charCards.push(card);
     });
+    this.charStats = el('aside', 'char-stats glass', undefined, chars);
+    const statsHead = el('div', 'char-stats-head', undefined, this.charStats);
+    this.i18nText('span', 'char-stats-title', 'stats.title', statsHead);
+    this.charStatsClass = el('span', 'pill', '', statsHead);
+    for (const s of STAT_KEYS) {
+      const row = el('div', 'char-stats-row', undefined, this.charStats);
+      this.charStatsLabels.push(el('span', 'char-stats-label', t(`statsFull.${s.key}`), row));
+      const bar = el('div', 'stat-bar', undefined, row);
+      this.charStatsFills.push(el('div', 'stat-fill', undefined, bar));
+    }
     const charFoot = el('footer', 'select-footer glass', undefined, chars);
     const charInfo = el('div', 'select-info', undefined, charFoot);
     this.charName = new TextField(el('div', 'select-info-name', '', charInfo));
@@ -667,6 +686,13 @@ export class MainMenu {
     const def = this.characters[i];
     this.charName.set(characterName(def.id, def.name).toUpperCase());
     this.charTagline.set(characterTagline(def.id, def.tagline));
+    this.charStats.style.setProperty('--card-accent', cssHex(def.color));
+    this.charStatsClass.className = `pill weight-${def.weightClass}`;
+    this.charStatsClass.textContent = weightLabel(def.weightClass);
+    STAT_KEYS.forEach((s, k) => {
+      const v = Math.max(0, Math.min(1, def.stats[s.key]));
+      this.charStatsFills[k].style.width = `${Math.round(v * 100)}%`;
+    });
     if (this.visible && this.panel === 'characterSelect') this.revealCard(this.charGrid, this.charCards[i]);
     if (changed) {
       if (sound) events.emit('ui:move', {});
@@ -830,6 +856,9 @@ export class MainMenu {
       card.querySelector<HTMLElement>('.card-tag')!.textContent = trackDescription(tr.id, tr.description);
       card.querySelector<HTMLElement>('.laps-pill')!.textContent = t('menu.laps', { count: tr.laps });
       card.querySelector<HTMLElement>('.difficulty-pill')!.textContent = difficultyLabel(DIFFICULTIES[tr.difficulty - 1] ?? 'normal');
+    });
+    STAT_KEYS.forEach((s, k) => {
+      this.charStatsLabels[k].textContent = t(`statsFull.${s.key}`);
     });
     this.setCharacter(this.charIndex);
     this.setDifficulty(this.difficultyIndex);

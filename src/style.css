@@ -2029,10 +2029,17 @@ html[lang='ru'] .panel-tracks .select-header::after {
 }
 
 /* Mute indicator + toasts */
+/* Only during a race, and under the pause button rather than on it. Menus and the pause
+   have their own sound switch; at the top centre the pill lay across the pause title
+   in the VK Android app (moderation, 29.09.2026), and in a race behind the pause button. */
+#ui:not([data-state='countdown']):not([data-state='racing']):not([data-state='finished']) .mute-indicator {
+  display: none;
+}
+
 .mute-indicator {
   position: absolute;
   z-index: 6;
-  top: 14px;
+  top: calc(max(10px, env(safe-area-inset-top)) + var(--vk-inset-top, 0px) + 66px);
   left: 50%;
   transform: translate(-50%, -20px);
   padding: 6px 14px;
@@ -2455,11 +2462,29 @@ html.touch-mode .hud-place {
   transform-origin: left top;
 }
 
+/* Phones: the minimap goes left, under the item slot and its label. On the right it sat
+   over the POWER and DRIFT buttons on short screens and grazed the lap timer (VK
+   moderation, 29.09.2026: "elements overlap"). The scale steps down with the height so
+   the map always ends above the steering pad. */
 html.touch-mode .hud-minimap {
-  top: calc(var(--hud-pad) + 96px);
+  left: var(--hud-pad);
+  right: auto;
+  top: calc(var(--hud-pad) + clamp(84px, 8.5vw, 118px) + 30px);
   bottom: auto;
   transform: scale(0.55);
-  transform-origin: right top;
+  transform-origin: left top;
+}
+
+@media (max-height: 400px) {
+  html.touch-mode .hud-minimap {
+    transform: scale(0.47);
+  }
+}
+
+@media (max-height: 350px) {
+  html.touch-mode .hud-minimap {
+    transform: scale(0.38);
+  }
 }
 
 html.touch-mode .hud-speed {
@@ -2585,6 +2610,59 @@ html.touch-mode .hud-speed {
 .btn.sound-btn.off,
 .btn.pause-sound.off {
   color: #ffb3b3;
+}
+
+/* Stats of the picked racer (MainMenu.charStats). Shown only when the cards drop their
+   stat bars to fit a short screen (.fit-3): VK moderation found no way to see the
+   racers' stats on a phone. Top right, in the free space above the 3D kart. */
+.char-stats {
+  display: none;
+}
+
+.panel-chars.fit-3 .char-stats {
+  display: grid;
+  gap: 4px;
+  position: absolute;
+  top: calc(max(8px, env(safe-area-inset-top)) + var(--vk-inset-top, 0px));
+  right: calc(max(12px, env(safe-area-inset-right)) + var(--vk-inset-right, 0px));
+  width: min(36vw, 250px);
+  padding: 8px 12px 10px;
+  border-color: var(--card-accent, rgba(255, 255, 255, 0.18));
+  pointer-events: none;
+  animation: fade-up 0.4s var(--ease-out) both;
+}
+
+.char-stats-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.char-stats-title {
+  font-family: var(--display);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--ink-dim);
+}
+
+.char-stats-head .pill {
+  padding: 2px 8px;
+  font-size: 10px;
+}
+
+.char-stats-row {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.char-stats-label {
+  font-size: 11px;
+  color: var(--ink-dim);
+  white-space: nowrap;
 }
 
 /* Route record on a track card, for the difficulty picked below the cards. */
