@@ -54,8 +54,8 @@ try {
   vite.kill();
 }
 
-async function openGame(browser, lang, width, height) {
-  const page = await (await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1 })).newPage();
+async function openGame(browser, lang, width, height, scale = 1) {
+  const page = await (await browser.newContext({ viewport: { width, height }, deviceScaleFactor: scale })).newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -172,6 +172,17 @@ async function hero(page, id) {
   await sleep(350);
 }
 
+/** One gameplay screenshot per route, seven and a half seconds into the race. */
+async function raceShots(page, dir, tag) {
+  for (const id of TRACKS) {
+    await startRace(page, id, id === 'neon_nexus' ? 'pixel' : id === 'frostbite_falls' ? 'kai' : 'bram');
+    await page.waitForFunction(() => window.__zombieSprint.currentState === 'racing', null, { timeout: 30000 });
+    await sleep(7500);
+    await page.screenshot({ path: path.join(dir, `shot-race-${id}${tag}.png`) });
+    await toMenu(page);
+  }
+}
+
 async function capture(browser, lang) {
   const dir = path.join(RAW, lang);
   ensure(dir);
@@ -200,14 +211,26 @@ async function capture(browser, lang) {
       await page.screenshot({ path: path.join(dir, `shot-face-${id}.png`), clip: { x: 420, y: 0, width: 1080, height: 1080 } });
     }
     await page.evaluate(() => { document.getElementById('ui').style.visibility = ''; window.__promo = { spec: null, angle: null, focusY: null }; });
-    for (const id of TRACKS) {
-      await startRace(page, id, id === 'neon_nexus' ? 'pixel' : id === 'frostbite_falls' ? 'kai' : 'bram');
-      await page.waitForFunction(() => window.__zombieSprint.currentState === 'racing', null, { timeout: 30000 });
-      await sleep(7500);
-      await page.screenshot({ path: path.join(dir, `shot-race-${id}.png`) });
-      await toMenu(page);
-    }
+    await raceShots(page, dir, '');
     if (errors.length) console.warn(`[${lang}] screenshot console errors:`, errors.slice(0, 5));
+    await page.context().close();
+  }
+
+  // VK screenshots are 2:1 and get a window of their own. Cropping the 16:9 frame cut the
+  // top row of the interface: the lap counter, the item slot, and the menu button down to
+  // a sliver. Shot at double density and scaled down to 1200x600.
+  {
+    const { page, errors } = await openGame(browser, lang, 1200, 600, 2);
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.panel-chars.active', { timeout: 15000 }).catch(() => {});
+    await sleep(900);
+    await page.screenshot({ path: path.join(dir, 'shot-zombies-2x1.png') });
+    await page.evaluate(() => document.querySelector('[data-action="release-horde"]')?.click());
+    await sleep(1200);
+    await page.screenshot({ path: path.join(dir, 'shot-routes-2x1.png') });
+    await toMenu(page);
+    await raceShots(page, dir, '-2x1');
+    if (errors.length) console.warn(`[${lang}] 2:1 screenshot console errors:`, errors.slice(0, 5));
     await page.context().close();
   }
 
@@ -344,7 +367,7 @@ for (const lang of LANGS) {
   const cover = (to, w, h) => fit('shot-lineup', to, w, h,
     `,drawbox=x=0:y=ih*0.7:w=iw:h=ih*0.3:color=0x07091a@0.55:t=fill,drawtext=fontfile='${FONT}':text='ZOMBIE SPRINT':fontcolor=white:fontsize=${Math.round(Math.min(w / 9, h / 5.2))}:x=(w-text_w)/2:y=h*0.745:shadowcolor=0x000000@0.85:shadowx=3:shadowy=3`);
   const screens = ['shot-race-sunny_circuit', 'shot-zombies', 'shot-race-dune_drift', 'shot-race-frostbite_falls', 'shot-routes', 'shot-race-neon_nexus'];
-  const makeScreens = (to, w, h) => screens.forEach((s, i) => fit(s, path.join(to, `screen-${i + 1}-${w}x${h}.png`), w, h));
+  const makeScreens = (to, w, h, tag = '') => screens.forEach((s, i) => fit(s + tag, path.join(to, `screen-${i + 1}-${w}x${h}.png`), w, h));
 
   const yandex = path.join(OUT, 'yandex');
   const vkok = path.join(OUT, 'vkok');
@@ -355,7 +378,7 @@ for (const lang of LANGS) {
   // Yandex screenshots must show real gameplay on at least 70% of the image: races only.
   screens.filter((s) => s.startsWith('shot-race-')).forEach((s, i) => fit(s, path.join(yandex, `screen-${i + 1}-1920x1080.png`), 1920, 1080));
   makeScreens(crazy, 1920, 1080);
-  makeScreens(vkok, 1200, 600);
+  makeScreens(vkok, 1200, 600, '-2x1');
 
   // Yandex videos: 16:9 required and 9:16 optional, both up to 28 s and 100 MB.
   fit('shot-face-rosa', path.join(yandex, 'icon-512.png'), 512, 512);
