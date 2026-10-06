@@ -125,7 +125,8 @@ export class TouchControls {
     if (glyph) el('span', 'tc-glyph', glyph, node);
     // Pause carries a written label as well as the glyph: two bars alone read as
     // decoration, and a platform reviewer looking for the way out of a race has
-    // to find it at a glance (VK 3.4.2). Other buttons keep glyph plus label too.
+    // to find it at a glance (VK 3.4.2). The label says "Menu", not "Pause": that
+    // is the word they look for. Other buttons keep glyph plus label too.
     if (role === 'pause') this.labels.push({ node, key: labelKey });
     this.label(el('span', 'tc-label', '', node), labelKey);
     const set = this.held[role];

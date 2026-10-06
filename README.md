@@ -67,7 +67,7 @@ platform mute and gameplay start/stop signals.
 | Hop / drift | Space / Shift | A / RB | DRIFT |
 | Use power | E / Enter | X / LB | POWER |
 | Look back | Q | | |
-| Pause | Esc / P | Start | Pause button at the top |
+| Pause / main menu | Esc / P | Start | MENU button at the top (also with a mouse) |
 | Menu confirm / back | Enter / Space / Esc | A / B | Tap |
 | Mute | M | | Sound button on the title / in pause |
 

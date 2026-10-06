@@ -78,6 +78,10 @@ button {
   overflow: hidden;
   user-select: none;
   -webkit-user-select: none;
+  /* The menu button of a race (.tc-pause): top edge and height. The centre messages
+     that share the top of the screen with it are placed from these. */
+  --menu-top: calc(max(10px, env(safe-area-inset-top)) + var(--vk-inset-top, 0px));
+  --menu-h: clamp(44px, 11vmin, 56px);
 }
 
 .hidden {
@@ -1317,6 +1321,18 @@ html[lang='ru'] .panel-tracks .select-header::after {
   width: 100%;
 }
 
+/* The way to the main menu is what a reviewer opens the pause for: second in weight
+   after Resume, not the faintest of four. */
+.pause-panel .actions .btn.danger {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.55);
+}
+
+/* Keyboard hints mean nothing on a phone, and on a 330px screen the line sat on the edge. */
+html.touch-mode .pause .panel-hint {
+  display: none;
+}
+
 .results {
   background: radial-gradient(80% 80% at 50% 50%, rgba(11, 11, 26, 0.25) 0%, rgba(11, 11, 26, 0.8) 100%);
   pointer-events: auto;
@@ -1925,7 +1941,8 @@ html[lang='ru'] .panel-tracks .select-header::after {
 }
 
 .hud-finish {
-  top: 18%;
+  /* Never under the menu button: on a phone 18% of the height is less than the button takes. */
+  top: max(18%, calc(var(--menu-top) + var(--menu-h) + 8px));
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1956,8 +1973,11 @@ html[lang='ru'] .panel-tracks .select-header::after {
   0% { opacity: 0; transform: scale(0.5) rotate(-6deg); }
   12% { opacity: 1; transform: scale(1.05) rotate(1deg); }
   20% { transform: scale(1); }
-  88% { opacity: 1; }
-  100% { opacity: 0; transform: translateY(-30px); }
+  /* Held in place until it fades. With no transform at this stop the lift of the last
+     frame was spread over the whole stay: the word crept 30px up within a second and
+     sat there — on a phone, on the menu button. It now fades where it stands. */
+  88% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.04); }
 }
 
 /* Wrong way */
@@ -2028,44 +2048,13 @@ html[lang='ru'] .panel-tracks .select-header::after {
   to { opacity: 1; }
 }
 
-/* Mute indicator + toasts */
-/* Only during a race, and under the pause button rather than on it. Menus and the pause
-   have their own sound switch; at the top centre the pill lay across the pause title
-   in the VK Android app (moderation, 29.09.2026), and in a race behind the pause button. */
-#ui:not([data-state='countdown']):not([data-state='racing']):not([data-state='finished']) .mute-indicator {
-  display: none;
-}
-
-.mute-indicator {
-  position: absolute;
-  z-index: 6;
-  top: calc(max(10px, env(safe-area-inset-top)) + var(--vk-inset-top, 0px) + 66px);
-  left: 50%;
-  transform: translate(-50%, -20px);
-  padding: 6px 14px;
-  border-radius: 999px;
-  background: rgba(16, 17, 38, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  font-family: var(--display);
-  font-size: 13px;
-  letter-spacing: 0.24em;
-  color: var(--ink-dim);
-  opacity: 0;
-  transition: opacity 0.2s, transform 0.25s var(--ease-out);
-  pointer-events: none;
-}
-
-.mute-indicator.visible {
-  opacity: 1;
-  transform: translate(-50%, 0);
-}
-
 /* Under an advert the buttons do not react to the pointer (keyboard is stopped in Game). */
 body.ad-busy #ui,
 body.ad-busy #ui * {
   pointer-events: none;
 }
 
+/* Toasts */
 .toast-host {
   position: fixed;
   left: 50%;
@@ -2282,20 +2271,20 @@ body.has-banner #ui .screen {
   display: none;
 }
 
-html.touch-mode #ui[data-state='countdown'] .touch-controls,
-html.touch-mode #ui[data-state='racing'] .touch-controls {
-  display: block;
-}
-
-/* On a mouse screen exactly one control from this panel is shown — pause:
-   steering and throttle belong to touch, the way out of a race belongs to
-   everyone (see .tc-pause). The container comes up, the rest stays hidden. */
+/* The panel is up for the whole race, the finish included: after the line the kart
+   drives itself for up to twelve seconds while the rest of the field comes in, and
+   with the panel hidden there was no way out on screen at all until the results
+   (VK moderation, 06.10.2026: "no return to the main menu from gameplay"). */
 #ui[data-state='countdown'] .touch-controls,
-#ui[data-state='racing'] .touch-controls {
+#ui[data-state='racing'] .touch-controls,
+#ui[data-state='finished'] .touch-controls {
   display: block;
 }
 
-html:not(.touch-mode) .touch-controls > *:not(.tc-pause) {
+/* Exactly one control from this panel is for everyone — the menu button (see
+   .tc-pause). Steering and throttle belong to touch, and to a race still being driven. */
+html:not(.touch-mode) .touch-controls > *:not(.tc-pause),
+#ui[data-state='finished'] .touch-controls > *:not(.tc-pause) {
   display: none;
 }
 
@@ -2415,31 +2404,53 @@ html.touch-mode body {
   font-size: min(2.4vmin, 12px);
 }
 
-/* Pause is a labelled pill, not a bare glyph, and it is the one touch control
-   that shows on desktop too: on a mouse screen it used to be missing entirely,
-   leaving ESC as the only way out of a race — which platform reviewers treat as
-   no way out at all (VK 4.2.10, 3.4.2). --vk-inset-top comes from the VK
-   bootstrap: inside the mobile shell env(safe-area-inset-*) is zero. */
+/* The menu button is a labelled pill, not a bare glyph, and it is the one touch
+   control that shows on desktop too: on a mouse screen it used to be missing
+   entirely, leaving ESC as the only way out of a race — which platform reviewers
+   treat as no way out at all (VK 4.2.10, 3.4.2). --vk-inset-top comes from the VK
+   bootstrap: inside the mobile shell env(safe-area-inset-*) is zero.
+
+   It is the only light, solid element of the race HUD. As dark glass with a thin
+   rim it sat on the start gantry and read as one more sign on it, and it said
+   "Pause" where a reviewer looks for a menu; on a phone it was 36px tall. */
 .tc-pause {
-  top: calc(max(10px, env(safe-area-inset-top)) + var(--vk-inset-top, 0px));
+  top: var(--menu-top);
   left: 50%;
-  min-width: min(11vmin, 56px);
-  height: min(11vmin, 56px);
-  padding: 0 min(3vmin, 16px);
+  min-width: var(--menu-h);
+  height: var(--menu-h);
+  padding: 0 clamp(14px, 3.4vmin, 20px);
   flex-direction: row;
-  gap: min(1.6vmin, 8px);
+  gap: clamp(6px, 1.6vmin, 8px);
   border-radius: 999px;
-  border-color: #b8ff7a;
-  background: rgba(8, 10, 26, 0.72);
-  box-shadow: 0 0 16px rgba(184, 255, 122, 0.3), 0 2px 10px rgba(0, 0, 0, 0.55);
+  border-color: #0b0d22;
+  background: #f4f6ff;
+  color: #0b0d22;
+  backdrop-filter: none;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.55), 0 4px 14px rgba(0, 0, 0, 0.6);
   transform: translateX(-50%);
+  cursor: pointer;
 }
 
-.tc-pause .tc-glyph {
-  color: #b8ff7a;
+.tc-pause .tc-label {
+  font-size: clamp(13px, 3.4vmin, 17px);
+  letter-spacing: 0.1em;
+  text-shadow: none;
+}
+
+/* Sound is off (the player's switch or the host's): a crossed speaker on the button
+   that leads to the switch. Drawn, not an emoji — those differ from phone to phone.
+   A pill of its own under the button lay across the centre messages (see Game.applyMute). */
+#ui.sound-off .tc-pause::after {
+  content: '';
+  flex: none;
+  width: clamp(16px, 4.4vmin, 22px);
+  height: clamp(16px, 4.4vmin, 22px);
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230b0d22' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 9v6h4l5 4V5L7 9H3z' fill='%230b0d22'/%3E%3Cpath d='M16 9l6 6M22 9l-6 6'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
 .tc-pause.down {
+  background: #b8ff7a;
+  border-color: #0b0d22;
   transform: translateX(-50%) scale(0.93);
 }
 

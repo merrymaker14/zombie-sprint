@@ -28,7 +28,7 @@ const allErrors = [];
 const text = (page, sel) => page.evaluate((s) => (document.querySelector(s)?.textContent || '').trim(), sel);
 /** Привести звук игрока во «включено», чтобы следующие проверки не зависели от предыдущих. */
 const soundOn = async (page) => { if (await page.evaluate(() => window.__zombieSprint.audio.muted)) await page.keyboard.press('KeyM'); };
-const indicator = (page) => page.evaluate(() => document.querySelector('.mute-indicator')?.classList.contains('visible') === true);
+const indicator = (page) => page.evaluate(() => document.querySelector('#ui')?.classList.contains('sound-off') === true);
 
 /* ============================ CrazyGames ============================ */
 console.log('--- CrazyGames ---');
@@ -271,6 +271,8 @@ console.log('\n--- игровое поле и выход из гонки ---');
     JSON.stringify(btn));
   /* Подпись словом: голые две полосы за кнопку не считают. */
   ok('у кнопки паузы есть подпись', !!btn && btn.label.replace(/[^\p{L}]/gu, '').length >= 4, btn && btn.label);
+  /* Подпись «Пауза» модерация ВК за выход в меню не засчитала (06.10.2026). */
+  ok('кнопка в гонке подписана как меню', !!btn && /меню|menu/i.test(btn.label), btn && btn.label);
   ok('нажатие по кнопке паузы ничем не перекрыто', !!btn && btn.own);
 
   await page.click('.tc-pause', { force: true }).catch(() => {});
@@ -291,6 +293,39 @@ console.log('\n--- игровое поле и выход из гонки ---');
   });
   await sleep(900);
   ok('выход из паузы возвращает в главное меню', (await state(page)) === 'title', 'state ' + (await state(page)));
+
+  /* После финиша карт до двенадцати секунд едет сам, пока доезжают соперники. Кнопка
+     на это время пропадала с экрана — выхода не оставалось вовсе, пока не откроются
+     итоги (отказ ВК 06.10.2026). Финишируем одним игроком: так выглядит победа. */
+  await startRace(page);
+  await waitState(page, 'racing');
+  await sleep(1200);
+  await page.evaluate(() => {
+    const rm = window.__zombieSprint.race.raceManager;
+    rm.finish(rm.trackers.find((tr) => tr.kart.state.isPlayer));
+  });
+  await waitState(page, 'finished', 10000);
+  await sleep(600);
+  const afterFinish = await page.evaluate(() => {
+    const b = document.querySelector('.tc-pause');
+    const r = b.getBoundingClientRect();
+    const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return { w: Math.round(r.width), h: Math.round(r.height), own: !!top && (top === b || b.contains(top)) };
+  });
+  ok('после финиша кнопка меню остаётся на экране', afterFinish.own && afterFinish.h >= 44, JSON.stringify(afterFinish));
+  await page.click('.tc-pause', { force: true }).catch(() => {});
+  await sleep(500);
+  ok('после финиша кнопка меню открывает паузу', (await state(page)) === 'paused', 'state ' + (await state(page)));
+  await page.click('.screen.pause [data-i18n="pause.quit"]', { timeout: 3000 }).catch(() => {});
+  await sleep(900);
+  const left = await page.evaluate(() => {
+    const g = window.__zombieSprint;
+    return { state: g.currentState, record: g.records.get(g.mainMenu.tracks[0].id, 'normal') };
+  });
+  ok('из паузы после финиша — в главное меню', left.state === 'title', 'state ' + left.state);
+  /* Уход в меню до итогов не должен стоить только что поставленного рекорда. */
+  ok('рекорд заезда записан, хотя итоги не открывались', !!left.record && left.record.place === 1 && left.record.time > 0,
+    JSON.stringify(left.record));
 
   allErrors.push(...errors.map((e) => 'exit: ' + e));
   await context.close();

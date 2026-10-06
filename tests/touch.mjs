@@ -88,6 +88,36 @@ const ok = (name, cond, extra = '') => { results.push({ name, cond, extra }); };
   const hiddenOnPause = await page.evaluate(() => getComputedStyle(document.querySelector('.touch-controls')).display === 'none');
   ok('на паузе кнопки гонки скрыты', hiddenOnPause);
 
+  /* После финиша руль и дрифт уходят (карт едет сам), а кнопка меню остаётся: без неё
+     на телефоне двенадцать секунд не было ни одного выхода (отказ ВК 06.10.2026). */
+  await tapAt(await center('.screen.pause [data-i18n="pause.resume"]'));
+  await sleep(500);
+  await page.evaluate(() => {
+    const rm = window.__zombieSprint.race.raceManager;
+    rm.finish(rm.trackers.find((tr) => tr.kart.state.isPlayer));
+  });
+  await page.waitForFunction(() => window.__zombieSprint.currentState === 'finished', null, { timeout: 10000 });
+  await sleep(700);
+  const afterFinish = await page.evaluate(() => {
+    const shown = (sel) => { const n = document.querySelector(sel); return !!n && n.getBoundingClientRect().height > 0; };
+    const r = document.querySelector('.tc-pause').getBoundingClientRect();
+    return { menu: shown('.tc-pause'), h: Math.round(r.height), steer: shown('.tc-steer'), drift: shown('.tc-drift') };
+  });
+  ok('после финиша кнопка меню на экране, не меньше 44 px', afterFinish.menu && afterFinish.h >= 44, JSON.stringify(afterFinish));
+  ok('после финиша руль и дрифт скрыты', !afterFinish.steer && !afterFinish.drift, JSON.stringify(afterFinish));
+  /* Тап только по тому, что на экране: исчезнувшая кнопка — это провал проверки ниже,
+     а не исключение, после которого пропадает весь отчёт. */
+  const menuPt = await center('.tc-pause');
+  if (menuPt) await tapAt(menuPt);
+  await sleep(500);
+  const st2 = await page.evaluate(() => window.__zombieSprint.currentState);
+  ok('после финиша тап по кнопке меню открывает паузу', st2 === 'paused', st2);
+  const quitPt = await center('.screen.pause [data-i18n="pause.quit"]');
+  if (quitPt) await tapAt(quitPt);
+  await sleep(900);
+  const st3 = await page.evaluate(() => window.__zombieSprint.currentState);
+  ok('тап по «В главное меню» возвращает в главное меню', st3 === 'title', st3);
+
   await page.setViewportSize({ width: 360, height: 740 });
   await sleep(600);
   const rotate = await page.evaluate(() => getComputedStyle(document.querySelector('.rotate-device')).display !== 'none');

@@ -38,7 +38,7 @@ import { ParticleSystem } from '../fx/ParticleSystem';
 import { PostFX } from '../fx/PostFX';
 
 import { RaceManager } from './RaceManager';
-import { Records } from './Records';
+import { Records, type RecordResult } from './Records';
 import { FollowCamera } from './FollowCamera';
 import { MenuBackdrop } from './MenuBackdrop';
 import type { MenuFraming } from './MenuBackdrop';
@@ -52,7 +52,7 @@ import { LoadingScreen } from '../ui/LoadingScreen';
 import { el } from '../ui/dom';
 import { showToast } from '../ui/toast';
 import { TouchControls } from '../ui/TouchControls';
-import { onLanguageChange, t } from '../core/i18n';
+import { t } from '../core/i18n';
 
 const MIN_LOADING_SECONDS = 0.8;
 /** Give up waiting for async shader compilation after this long and just go. */
@@ -122,6 +122,8 @@ interface RaceContext {
   background: THREE.Color;
   unsubs: (() => void)[];
   resultsTimer: number;
+  /** What this run did to the route record; undefined until the player has finished. */
+  recordResult?: RecordResult | null;
 }
 
 export class Game {
@@ -145,8 +147,6 @@ export class Game {
   private readonly results: ResultsScreen;
   private readonly pauseMenu: PauseMenu;
   private readonly loading: LoadingScreen;
-  private readonly muteIndicator: HTMLElement;
-  private readonly languageUnsub: () => void;
   /** Best place and time per route and difficulty — the progress that follows the player's account. */
   readonly records = new Records();
 
@@ -269,10 +269,6 @@ export class Game {
     this.pauseMenu.onToggleSound = () => this.toggleMute();
 
     this.loading = new LoadingScreen(this.uiRoot);
-    this.muteIndicator = el('div', 'mute-indicator', t('game.muted'), this.uiRoot);
-    this.languageUnsub = onLanguageChange(() => {
-      this.muteIndicator.textContent = t('game.muted');
-    });
     try {
       this.userMuted = localStorage.getItem(muteStorageKey()) === '1';
     } catch {
@@ -411,8 +407,6 @@ export class Game {
     this.results.dispose();
     this.pauseMenu.dispose();
     this.loading.dispose();
-    this.languageUnsub();
-    this.muteIndicator.remove();
     this.input.dispose();
     this.touch.dispose();
     this.safe(() => this.audio.dispose());
@@ -1030,6 +1024,7 @@ export class Game {
   }
 
   private onPlayerFinished(r: RaceContext): void {
+    this.submitRecord(r);
     if (this.state !== 'racing' && this.state !== 'countdown') return;
     try {
       r.playerAutoDriver = new AIDriver(r.karts[0], 'normal', 0);
@@ -1047,14 +1042,24 @@ export class Game {
     if (!r || this.state === 'results') return;
     r.hud.hide();
     const standings = r.raceManager.getStandings();
-    /* A finished run counts toward the route record; an unfinished one (no finish
-       time) changes nothing. The record line is shown either way once one exists. */
-    const you = standings.find((s) => s.isPlayer);
-    const difficulty = r.settings.difficulty;
-    const result = you ? this.records.submit(r.trackDef.id, difficulty, you.place, you.finishTime) : null;
-    this.results.show(standings, { best: this.records.get(r.trackDef.id, difficulty), result });
+    // The record line is shown whether or not this run improved it, once one exists.
+    const result = this.submitRecord(r);
+    this.results.show(standings, { best: this.records.get(r.trackDef.id, r.settings.difficulty), result });
     this.setState('results');
     this.playMusic('results');
+  }
+
+  /**
+   * A finished run counts toward the route record; an unfinished one (no finish time)
+   * changes nothing. It is written the moment the player crosses the line, not when the
+   * results open: the menu button stays up after the finish, and leaving through it in
+   * those seconds must not cost the record just set. Once per race.
+   */
+  private submitRecord(r: RaceContext): RecordResult | null {
+    if (r.recordResult !== undefined) return r.recordResult;
+    const you = r.raceManager.getStandings().find((s) => s.isPlayer);
+    r.recordResult = you ? this.records.submit(r.trackDef.id, r.settings.difficulty, you.place, you.finishTime) : null;
+    return r.recordResult;
   }
 
   private pause(): void {
@@ -1161,8 +1166,12 @@ export class Game {
       this.audio.setMuted(this.userMuted);
       this.audio.setSilenced?.('platform', this.platformMuted);
     });
-    this.muteIndicator.classList.toggle('visible', this.userMuted || this.platformMuted);
-    // The on-screen switches show the player's own choice; the host's mute has its own indicator.
+    /* In a race the reminder is a crossed speaker on the menu button, where the switch
+       is. It used to be a pill of its own under that button, in the column every centre
+       message uses: it lay across FINISH on every screen and across the countdown digit
+       on a phone — the kind of overlap VK moderation returned the game for (29.09.2026). */
+    this.uiRoot.classList.toggle('sound-off', this.userMuted || this.platformMuted);
+    // The on-screen switches show the player's own choice; the host's mute shows on the menu button too.
     this.mainMenu.setSound(this.userMuted);
     this.pauseMenu.setSound(this.userMuted);
   }

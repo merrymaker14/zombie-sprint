@@ -7,8 +7,13 @@
  * устройствах нет возможности посмотреть характеристики гонщиков». Там же в гонке
  * миникарта лежала на кнопках «Сила» и «Дрифт». Глазами на одном экране такое не
  * заметить, поэтому здесь обходятся все экраны на пяти размерах — от низкого окна
- * приложения ВК до компьютера, со звуком выключенным (индикатор на виду), — и
- * меряются пересечения прямоугольников тех блоков, что не должны касаться.
+ * приложения ВК до компьютера, со звуком выключенным (кнопка меню в гонке тогда
+ * шире на значок динамика), — и меряются пересечения прямоугольников тех блоков,
+ * что не должны касаться.
+ *
+ * Отказ ВК 06.10.2026: «нет возврата в главное меню из игрового процесса». Кнопка
+ * в гонке была 36 px высотой на телефоне и пропадала после финиша; здесь же
+ * проверяется её размер и экран финиша, где она делит верх с надписью «ФИНИШ».
  */
 import { arg, failures, launch, ok } from './harness.mjs';
 
@@ -21,12 +26,13 @@ const LAYOUTS = [
   { name: 'компьютер', width: 1000, height: 600, touch: false },
 ];
 const CHECK = {
-  title: ['.logo', '.zombie-joke', '.language-picker', '.sound-picker', '.press-start', '.controls-legend', '.mute-indicator'],
-  chars: ['.panel-chars .select-header', '.panel-chars .char-stats', '.panel-chars .select-footer', '.panel-chars .card-grid', '.mute-indicator'],
-  tracks: ['.panel-tracks .select-header', '.panel-tracks .card-grid', '.panel-tracks .select-footer', '.mute-indicator'],
-  race: ['.tc-pause', '.mute-indicator', '.hud-item', '.hud-place .place-num', '.hud-topright', '.hud-minimap', '.hud-speed', '.tc-item', '.tc-drift', '.tc-brake', '.tc-steer'],
-  pause: ['.screen.pause .panel-kicker', '.screen.pause .panel-title', '.screen.pause .actions', '.screen.pause .panel-hint', '.mute-indicator'],
-  results: ['.screen.results .panel-title', '.screen.results .results-sub', '.screen.results .results-record', '.screen.results .standings', '.screen.results .actions', '.mute-indicator'],
+  title: ['.logo', '.zombie-joke', '.language-picker', '.sound-picker', '.press-start', '.controls-legend'],
+  chars: ['.panel-chars .select-header', '.panel-chars .char-stats', '.panel-chars .select-footer', '.panel-chars .card-grid'],
+  tracks: ['.panel-tracks .select-header', '.panel-tracks .card-grid', '.panel-tracks .select-footer'],
+  race: ['.tc-pause', '.hud-item', '.hud-place .place-num', '.hud-topright', '.hud-minimap', '.hud-speed', '.tc-item', '.tc-drift', '.tc-brake', '.tc-steer'],
+  finished: ['.tc-pause', '.hud-finish', '.hud-item', '.hud-place .place-num', '.hud-topright', '.hud-minimap', '.hud-speed'],
+  pause: ['.screen.pause .panel-kicker', '.screen.pause .panel-title', '.screen.pause .actions', '.screen.pause .panel-hint'],
+  results: ['.screen.results .panel-title', '.screen.results .results-sub', '.screen.results .results-record', '.screen.results .standings', '.screen.results .actions'],
 };
 
 const browser = await launch();
@@ -36,7 +42,7 @@ for (const L of LAYOUTS) {
   const ctx = await browser.newContext({ viewport: { width: L.width, height: L.height }, hasTouch: L.touch, isMobile: L.touch });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => errors.push(`${L.name}: ${e.message}`));
-  /* Звук выключен до старта: индикатор должен быть на виду там, где он показывается. */
+  /* Звук выключен до старта: в гонке на кнопке меню появляется значок, она шире всего. */
   await page.addInitScript(() => { try { localStorage.setItem('zs_audio_muted', '1'); } catch (e) { /* нет хранилища */ } });
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => window.__zombieSprint && window.__zombieSprint.currentState === 'title', null, { timeout: 90000 });
@@ -97,6 +103,9 @@ for (const L of LAYOUTS) {
   await page.waitForTimeout(1500);
   hits = await audit('race');
   ok(`гонка: ничего не накладывается`, hits.length === 0, hits.join('; '));
+  /* Кнопка выхода в меню: на телефоне она была 36 px высотой — модерация ВК её не нашла. */
+  const menuBtn = await page.evaluate(() => { const r = document.querySelector('.tc-pause').getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height) }; });
+  ok(`гонка: кнопка меню не меньше 44 px`, menuBtn.w >= 44 && menuBtn.h >= 44, JSON.stringify(menuBtn));
 
   await page.evaluate(() => window.__zombieSprint.pause());
   await page.waitForTimeout(500);
@@ -105,10 +114,27 @@ for (const L of LAYOUTS) {
 
   await page.evaluate(() => window.__zombieSprint.resume());
   await page.waitForTimeout(1000);
+  /* Игрок пересёк черту, соперники ещё едут: крупная надпись «ФИНИШ» и кнопка меню
+     на одном экране. Надпись входит с увеличением — ждём, пока встанет на место. */
   await page.evaluate(() => {
     const rm = window.__zombieSprint.race.raceManager;
-    const trs = rm.trackers.slice().sort((a, b) => (b.kart.state.isPlayer ? 1 : 0) - (a.kart.state.isPlayer ? 1 : 0));
-    for (const tr of trs) rm.finish(tr);
+    rm.finish(rm.trackers.find((tr) => tr.kart.state.isPlayer));
+  });
+  await page.waitForFunction(() => window.__zombieSprint.currentState === 'finished', null, { timeout: 10000 });
+  await page.waitForTimeout(1500);
+  hits = await audit('finished');
+  ok(`финиш: ничего не накладывается`, hits.length === 0, hits.join('; '));
+  const finishExit = await page.evaluate(() => {
+    const b = document.querySelector('.tc-pause');
+    const r = b.getBoundingClientRect();
+    const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return !!top && (top === b || b.contains(top));
+  });
+  ok(`финиш: кнопка меню на экране и не перекрыта`, finishExit);
+
+  await page.evaluate(() => {
+    const rm = window.__zombieSprint.race.raceManager;
+    for (const tr of rm.trackers) rm.finish(tr);
   });
   await page.waitForFunction(() => window.__zombieSprint.currentState === 'results', null, { timeout: 30000 });
   await page.waitForTimeout(1200);
